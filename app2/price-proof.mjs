@@ -1,0 +1,27 @@
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { chromium } = require("/home/hatch/node_modules/playwright-core");
+import http from "node:http"; import fs from "node:fs"; import path from "node:path";
+const MIME = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".ttf": "font/ttf" };
+const ROOT = "/home/hatch/workspace/nanny-app";
+const server = http.createServer((req, res) => { let p = decodeURIComponent(req.url.split("?")[0]); fs.readFile(path.join(ROOT, p), (e, buf) => { if (e) { res.writeHead(404); res.end(); return; } res.writeHead(200, { "Content-Type": MIME[path.extname(p)] || "application/octet-stream" }); res.end(buf); }); });
+await new Promise(r => server.listen(8943, r));
+const browser = await chromium.launch({ executablePath: "/home/hatch/.cache/ms-playwright/chromium-1187/chrome-linux/chrome", args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await page.addInitScript(() => {
+  localStorage.setItem("caresits-app2-draft", JSON.stringify({ side: "family", page: 0, answers: { country: "Germany" }, strengths: {} }));
+  window.__writes = [];
+  window.CARESITS_WRITE = (kind, payload) => window.__writes.push({ kind, payload });
+  window.CARESITS_THREAD = { pairId: "c1_f1", otherName: "Ana", messages: [{ text: "Hello", mine: false }], plan: { tier: "free", doorOpen: false }, tasteUsedToday: 1 };
+});
+await page.goto("http://127.0.0.1:8943/app2/index.html", { waitUntil: "domcontentloaded" });
+await page.evaluate(() => { document.querySelectorAll(".surface").forEach((s) => (s.hidden = true)); document.getElementById("surface-thread").hidden = false; });
+await page.waitForTimeout(300);
+await page.fill("#threadRoot textarea", "One more thing");
+await page.evaluate(() => [...document.querySelectorAll("#threadRoot button")].find((b) => b.textContent === "Send").click());
+await page.waitForTimeout(300);
+console.log("POPUP DE:", JSON.stringify(await page.evaluate(() => document.getElementById("upgradePop")?.innerText || "NO POPUP")));
+await page.goto("http://127.0.0.1:8943/accounts/account.html", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(400);
+console.log("ACCT DE:", JSON.stringify(await page.evaluate(() => [document.getElementById("planPriceFinding")?.textContent, document.getElementById("planPricePlus")?.textContent])));
+await browser.close(); server.close();
