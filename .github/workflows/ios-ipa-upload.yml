@@ -1,0 +1,174 @@
+name: iOS IPA
+
+# Manual run only. Builds the signed App Store .ipa for the Caresits store package.
+# Signing material arrives from repo secrets and never touches the repo itself.
+#
+# PUBLIC BUILD-ONLY COPY: this repo holds only what the archive build consumes,
+# mirrored blob-for-blob from the certified private tree (Caresitters build 102,
+# private pin 241f3549f78b6b11b60732dcb4e7b66c56ee96fa). The guarantee for these
+# bytes is the mirror verification (every file's git blob SHA checked against
+# the private pin at assembly) plus Security's secret census PASS on the
+# assembled tree (record cfe14cb6, 18 Oct 2026). The build checks out this
+# repo's own HEAD — the mirror commit is the pin of record. The private repo
+# remains the source of truth; never edit this copy by hand.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Capacitor and sync the web app
+        working-directory: store
+        run: |
+          npm ci
+          node sync-web.mjs
+          npx cap sync ios
+
+      - name: Install signing material from secrets
+        env:
+          DIST_CERT_P12_B64: ${{ secrets.DIST_CERT_P12_B64 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          PROVISIONING_PROFILE_B64: ${{ secrets.PROVISIONING_PROFILE_B64 }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/distribution.p12
+          echo -n "$DIST_CERT_P12_B64" | base64 --decode -o $CERT_PATH
+          KEYCHAIN_PATH=$RUNNER_TEMP/caresits-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERT_PATH -P "$DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychains -d user -s $KEYCHAIN_PATH login.keychain-db
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo -n "$PROVISIONING_PROFILE_B64" | base64 --decode -o "$HOME/Library/MobileDevice/Provisioning Profiles/89f067e6-4bc6-4a5f-a71a-a378983f0057.mobileprovision"
+
+      - name: Ensure a shared App scheme exists
+        working-directory: store/ios/App
+        run: |
+          SCHEME_DIR=App.xcodeproj/project.xcworkspace/xcshareddata/xcschemes
+          if [ ! -f "$SCHEME_DIR/App.xcscheme" ]; then
+            mkdir -p "$SCHEME_DIR"
+            TARGET_ID=$(python3 - <<'PY'
+          import re
+          pbx = open("App.xcodeproj/project.pbxproj").read()
+          m = re.search(r"([0-9A-F]{24}) /\* App \*/ = \{\s*isa = PBXNativeTarget;", pbx)
+          print(m.group(1) if m else "")
+          PY
+            )
+            if [ -z "$TARGET_ID" ]; then echo "Could not find the App native target id"; exit 1; fi
+            cat > "$SCHEME_DIR/App.xcscheme" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Scheme LastUpgradeVersion = "1600" version = "1.7">
+             <BuildAction parallelizeBuildables = "YES" buildImplicitDependencies = "YES" runPostActionsOnFailure = "NO">
+                <BuildActionEntries>
+                   <BuildActionEntry buildForTesting = "YES" buildForRunning = "YES" buildForProfiling = "YES" buildForArchiving = "YES" buildForAnalyzing = "YES">
+                      <BuildableReference BuildableIdentifier = "primary" BlueprintIdentifier = "$TARGET_ID" BuildableName = "App.app" BlueprintName = "App" ReferencedContainer = "container:App.xcodeproj">
+                      </BuildableReference>
+                   </BuildActionEntry>
+                </BuildActionEntries>
+             </BuildAction>
+             <TestAction buildConfiguration = "Release" selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv = "YES" shouldAutocreateTestPlan = "YES">
+             </TestAction>
+             <LaunchAction buildConfiguration = "Release" launchStyle = "0" useCustomWorkingDirectory = "NO" ignoresPersistentStateOnLaunch = "NO" debugDocumentVersioning = "YES" debugServiceExtension = "internal" allowLocationSimulation = "YES">
+                <BuildableProductRunnable runnableDebuggingMode = "0">
+                   <BuildableReference BuildableIdentifier = "primary" BlueprintIdentifier = "$TARGET_ID" BuildableName = "App.app" BlueprintName = "App" ReferencedContainer = "container:App.xcodeproj">
+                   </BuildableReference>
+                </BuildableProductRunnable>
+             </LaunchAction>
+             <ProfileAction buildConfiguration = "Release" shouldUseLaunchSchemeArgsEnv = "YES" savedToolIdentifier = "" useCustomWorkingDirectory = "NO" debugDocumentVersioning = "YES">
+                <BuildableProductRunnable runnableDebuggingMode = "0">
+                   <BuildableReference BuildableIdentifier = "primary" BlueprintIdentifier = "$TARGET_ID" BuildableName = "App.app" BlueprintName = "App" ReferencedContainer = "container:App.xcodeproj">
+                   </BuildableReference>
+                </BuildableProductRunnable>
+             </ProfileAction>
+             <AnalyzeAction buildConfiguration = "Release">
+             </AnalyzeAction>
+             <ArchiveAction buildConfiguration = "Release" revealArchiveInOrganizer = "YES">
+             </ArchiveAction>
+          </Scheme>
+          EOF
+            echo "Wrote fallback shared scheme for target $TARGET_ID"
+          fi
+
+      - name: Switch the App target to manual distribution signing (CI copy only)
+        working-directory: store/ios/App
+        run: |
+          perl -pi -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;\n\t\t\t\tDEVELOPMENT_TEAM = GZ9Z6BPTFR;\n\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "Caresits App Store";/' App.xcodeproj/project.pbxproj
+          perl -pi -e 's/CODE_SIGN_IDENTITY = "iPhone Developer";/CODE_SIGN_IDENTITY = "Apple Distribution";/' App.xcodeproj/project.pbxproj
+          grep -E "CODE_SIGN_STYLE|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_IDENTITY" App.xcodeproj/project.pbxproj | sort -u
+
+      - name: Archive with distribution signing
+        working-directory: store/ios/App
+        run: |
+          xcodebuild archive \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/Caresits.xcarchive \
+            -destination "generic/platform=iOS"
+
+      - name: Export the .ipa
+        run: |
+          cat > $RUNNER_TEMP/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>GZ9Z6BPTFR</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.ilse.caresits</key>
+              <string>Caresits App Store</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/Caresits.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+            -exportPath $RUNNER_TEMP/export
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caresits-ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 30
+      - name: Upload to App Store Connect
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_B64: ${{ secrets.ASC_API_KEY_P8_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo -n "$ASC_API_KEY_P8_B64" | base64 --decode -o "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_API_KEY_ID}.p8"
+          set +e
+          xcrun altool --upload-app -f "$RUNNER_TEMP/export/App.ipa" -t ios --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_ISSUER_ID"
+          ALTOOL_STATUS=$?
+          set -e
+          echo "altool exit code: $ALTOOL_STATUS"
+          exit "$ALTOOL_STATUS"
