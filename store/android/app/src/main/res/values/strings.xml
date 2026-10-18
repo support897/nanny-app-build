@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Caresitters</string>
+    <string name="title_activity_main">Caresitters</string>
+    <string name="package_name">com.ilse.nannyapp</string>
+    <string name="custom_url_scheme">com.ilse.nannyapp</string>
+</resources>

@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "908064912971",
+    "project_id": "caresits-812a0",
+    "storage_bucket": "caresits-812a0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:908064912971:android:cd20e81214f616b2b23fce",
+        "android_client_info": {
+          "package_name": "com.ilse.caresits"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "908064912971-8afl55kouoaqi1ir57q3n5u9dk8po4oa.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBqkO7vSvfu_K6InbG66-I2joZ9i1-Dobc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "908064912971-8afl55kouoaqi1ir57q3n5u9dk8po4oa.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "908064912971-m38ejiid1tp1qlirbqefh9odhlpv5r2k.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.ilse.caresits"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
