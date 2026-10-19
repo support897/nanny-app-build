@@ -7,7 +7,7 @@
 // carries ?twin=1; every other visit uses the production
 // config beside this file.
 import { levelOf } from "./levels.js";
-import { resolvePlan, entitlementFromRecord, plusExtrasOpen } from "../accounts/account.js";
+import { resolvePlan, entitlementFromRecord, plusExtrasOpen, withTimeout } from "../accounts/account.js";
 
 // The photo lifecycle stamp path (HQ spec, 19 Oct 2026):
 // carers only, at the root, beside _comp and _entitlements.
@@ -27,7 +27,12 @@ export function routeWrite(kind, payload, uid) {
     case "interest": return { ok: true, op: "set", path: payload.path, data: payload.data };
     case "report": return { ok: true, op: "reportPair", path: "safetyReports", data: payload.data, counter: payload.counter };
     case "block": return { ok: true, op: "set", path: payload.path, data: payload.data };
-    case "child-add": return { ok: true, op: "add", path: `users/${uid}/children`, data: { name: payload.name, theme: payload.theme, ...(payload.ageYears != null ? { ageYears: payload.ageYears } : {}), ...(Array.isArray(payload.loves) && payload.loves.length ? { loves: payload.loves } : {}) } };
+    // Id unity (QA b104 Leg 7): the child is written under its
+    // own local id, so the mirror, the bin record, the remove
+    // and the restore all speak ONE id. An addDoc random id
+    // left every later delete speaking an id the server never
+    // held — a silent no-op at permanent deletion.
+    case "child-add": return { ok: true, op: "set", path: `users/${uid}/children/${payload.id}`, data: { name: payload.name, theme: payload.theme, ...(payload.ageYears != null ? { ageYears: payload.ageYears } : {}), ...(Array.isArray(payload.loves) && payload.loves.length ? { loves: payload.loves } : {}) } };
     case "invite-create": return { ok: true, op: "set", path: payload.path, data: payload.data };
     case "invite-accept": return { ok: true, op: "inviteAccept", relPath: payload.relPath, relData: payload.relData, invitePath: payload.invitePath, stamp: payload.stamp };
     case "shopping": return { ok: true, op: "set", path: payload.path, data: payload.data };
@@ -48,7 +53,7 @@ export function routeWrite(kind, payload, uid) {
     // family visible document. The name rides the profile doc
     // so the discard, the confirm and the account deletion can
     // each remove the object itself.
-    case "dayStory": return { ok: true, op: "add", path: `users/${uid}/dayStory`, data: { day: payload.day, tile: payload.tile, note: payload.note, at: payload.at } };
+    case "dayStory": return { ok: true, op: "set", path: `users/${uid}/dayStory/${payload.id}`, data: { day: payload.day, tile: payload.tile, note: payload.note, at: payload.at } };
     case "photo-request": return { ok: true, op: "add", path: `users/${uid}/dayStory`, data: { day: payload.day, tile: "Photo moment", note: "A photo of the kids was asked for", at: payload.at } };
     case "timesheet": return { ok: true, op: "add", path: `users/${uid}/timesheets`, data: { day: payload.day, hours: payload.hours } };
     case "reminder": return { ok: true, op: "merge", path: `users/${uid}/meta/reminders`, data: { text: payload.text, when: payload.when } };
@@ -112,7 +117,17 @@ export function trustSeamFrom(profile, card, questionnaire) {
 // seam without a second read.
 let lastTrustInputs = null;
 
+// A name the tour saved can arrive BEFORE the boot's first
+// publication (QA b104 Leg 2's race): the refresh then has no
+// retained documents to re-publish from, and the boot's own
+// publication — read earlier still — would land the
+// placeholder over a saved name. The name is therefore held
+// here and applied at every publication until the documents
+// themselves carry it.
+let pendingTrustName = "";
+
 export function publishTrust(profile, card, questionnaire) {
+  if (pendingTrustName) profile = { ...(profile || {}), displayName: pendingTrustName };
   lastTrustInputs = { profile, card, questionnaire };
   const me = trustSeamFrom(profile, card, questionnaire);
   if (typeof window === "undefined") return me;
@@ -139,6 +154,7 @@ export function publishTrust(profile, card, questionnaire) {
 // was given (Leg 2): a mirror of the server truth, never a
 // second copy of it.
 export function refreshTrustName(name) {
+  if (name) pendingTrustName = name;
   if (!lastTrustInputs || typeof window === "undefined") return;
   const profile = { ...(lastTrustInputs.profile || {}), displayName: name };
   publishTrust(profile, lastTrustInputs.card, lastTrustInputs.questionnaire);
@@ -227,6 +243,36 @@ export function phaseCSeam({ uid, side, rels, jobs, names }) {
   return { viewer: { uid, side: side || "" }, rels: rels || [], jobs: jobs || [], names: names || {} };
 }
 
+// The week seam (QA b104 ROOT B): the boot reads the member's
+// own meta documents and timesheet entries and publishes them
+// in the shape week.js boots from. The reminder and the
+// emergency contact are single merge documents server-side;
+// the surfaces render lists, so each becomes a one-entry list
+// when it carries its words. Sessions (the pair roster) keep
+// their own calendar source and are not this seam's to fill.
+export function weekSeamFrom({ timesheets, reminderDoc, emergencyDoc }) {
+  const reminders = reminderDoc && reminderDoc.text ? [{ text: reminderDoc.text, when: reminderDoc.when || "" }] : [];
+  const emergency = emergencyDoc && emergencyDoc.name ? [{ name: emergencyDoc.name, phone: emergencyDoc.phone || "" }] : [];
+  return { sessions: [], entries: timesheets || [], reminders, emergency };
+}
+
+// The thread seam (QA b104 Leg 14): the boot's message mirror
+// plus the Phase C pairs become the one thread the surface
+// opens — the first live pair, its messages in order, the
+// other member's card name, and today's free-taste count
+// from the viewer's own sent messages. No pair yet publishes
+// the designed empty thread, which renders its empty state.
+export function threadSeamFrom({ rels, names, msgs, uid }) {
+  const rel = (rels || []).find((r) => r.state === "contact" || r.state === "hired") || (rels || [])[0];
+  if (!rel) return { pairId: "", otherName: "", messages: [], plan: null, tasteUsedToday: 0 };
+  const other = (rel.members || []).find((m) => m && m !== uid) || "";
+  const messages = (msgs || []).filter((m) => m.pairId === rel.id)
+    .map((m) => ({ text: m.text || "", mine: m.mine === true, at: m.at || "" }));
+  const today = new Date().toDateString();
+  const tasteUsedToday = messages.filter((m) => m.mine && m.at && new Date(m.at).toDateString() === today).length;
+  return { pairId: rel.id, otherName: (names || {})[other] || "", messages, plan: null, tasteUsedToday };
+}
+
 // The live Phase C fetch: the viewer's pairs (the members
 // array-contains query is the read fence's provable shape),
 // the open board plus the viewer's own jobs merged by id, and
@@ -300,9 +346,13 @@ export async function bootLive() {
       let profile = {};
       let qData = {};
       try {
-        const prof = await fs.getDoc(docAt(`users/${uid}`));
+        // First-data reads are bounded (fleet census cure):
+        // a wedged read takes the same missing-data path as
+        // an error, so the seams publish with what stands
+        // instead of never publishing at all.
+        const prof = await withTimeout(fs.getDoc(docAt(`users/${uid}`)), 15000, "profile read");
         profile = prof.exists() ? prof.data() : {};
-        const q = await fs.getDoc(docAt(`users/${uid}/meta/questionnaire`));
+        const q = await withTimeout(fs.getDoc(docAt(`users/${uid}/meta/questionnaire`)), 15000, "questionnaire read");
         qData = q.exists() ? q.data() : {};
         window.CARESITS_ME = { uid, side: profile.side || "", name: profile.displayName || "" };
         window.CARESITS_PROFILE_COMPLETE = !!(profile.displayName && q.exists());
@@ -318,7 +368,7 @@ export async function bootLive() {
         const createdAtMs = Number.isNaN(createdRaw) ? null : createdRaw;
         let payment = null;
         if (side !== "carer") {
-          const ent = await fs.getDoc(docAt(`_entitlements/${uid}`));
+          const ent = await withTimeout(fs.getDoc(docAt(`_entitlements/${uid}`)), 15000, "entitlement read");
           payment = entitlementFromRecord(ent.exists() ? ent.data() : null, Date.now());
         }
         const plan = resolvePlan({ side, comp: null, payment, now: Date.now() });
@@ -339,7 +389,7 @@ export async function bootLive() {
           for (const wait of [0, 2500, 5000]) {
             if (wait) await new Promise((r) => setTimeout(r, wait));
             try {
-              const ent2 = await fs.getDoc(docAt(`_entitlements/${uid}`));
+              const ent2 = await withTimeout(fs.getDoc(docAt(`_entitlements/${uid}`)), 15000, "entitlement refresh");
               const payment2 = entitlementFromRecord(ent2.exists() ? ent2.data() : null, Date.now());
               const plan2 = resolvePlan({ side, comp: null, payment: payment2, now: Date.now() });
               const before = window.CARESITS_PLAN && window.CARESITS_PLAN.tier;
@@ -364,6 +414,7 @@ export async function bootLive() {
         const stampPath = activityStampPath(uid, profile.side || "");
         if (stampPath) await fs.setDoc(docAt(stampPath), { lastActiveAt: fs.serverTimestamp() }, { merge: true });
       } catch { /* the stamp waits for its rules arm */ }
+      let bootMsgs = [];
       try {
         const grab = async (path) => {
           const snap = await fs.getDocs(colAt(path));
@@ -374,9 +425,37 @@ export async function bootLive() {
         const kids = await grab(`users/${uid}/children`);
         const story = await grab(`users/${uid}/dayStory`);
         const msgs = await grab(`users/${uid}/messages`);
+        bootMsgs = msgs;
         const cardSnap = await fs.getDoc(docAt(`profiles/${uid}`));
         const cardData = cardSnap.exists() ? cardSnap.data() : {};
         window.CARESITS_FAMILY = { children: kids, entries: story, side: window.CARESITS_ME?.side || "family" };
+        // The family surfaces booted before this publication
+        // landed (QA b104 ROOT B): they re-render from the
+        // seam now, the Phase C way.
+        if (typeof window.CARESITS_FAMILY_RENDER === "function") window.CARESITS_FAMILY_RENDER();
+        // ROOT B, the rest of the member's own records: the
+        // week seam (timesheets, the reminder, the emergency
+        // contact) and the appearance record. The saved
+        // background choice re-seeds the device key BEFORE
+        // the trust publication below re-renders Settings, so
+        // the boot applies the member's own background, not
+        // the device default. An uploaded photo itself is
+        // device data and is never seeded from the record.
+        try {
+          const docOr = async (path) => {
+            const s = await withTimeout(fs.getDoc(docAt(path)), 15000, "meta read");
+            return s.exists() ? s.data() : null;
+          };
+          const sheets = await grab(`users/${uid}/timesheets`);
+          const reminderDoc = await docOr(`users/${uid}/meta/reminders`);
+          const emergencyDoc = await docOr(`users/${uid}/meta/emergency`);
+          const appDoc = await docOr(`users/${uid}/meta/app`);
+          window.CARESITS_WEEK = weekSeamFrom({ timesheets: sheets, reminderDoc, emergencyDoc });
+          if (typeof window.CARESITS_WEEK_RENDER === "function") window.CARESITS_WEEK_RENDER();
+          if (appDoc && appDoc.background) {
+            try { localStorage.setItem("caresits-app2-bg", JSON.stringify({ choice: appDoc.background })); } catch { /* storage off */ }
+          }
+        } catch { /* the week surfaces stand in their empty states */ }
         // F15: My Profile renders from the trust seam, and the
         // seam is published here, from the member's real
         // documents, the moment the boot has read them.
@@ -400,6 +479,11 @@ export async function bootLive() {
         const seam = await fetchPhaseC(fs, db, uid, window.CARESITS_ME?.side || profile.side || "");
         window.CARESITS_PHASE_C = seam;
         if (typeof window.CARESITS_PHASE_C_RENDER === "function") window.CARESITS_PHASE_C_RENDER();
+        // Leg 14: the thread seam publishes from the same
+        // fetch — pairs plus the boot's message mirror — so
+        // the Messages surface and its empty state can render.
+        window.CARESITS_THREAD = threadSeamFrom({ rels: seam.rels, names: seam.names, msgs: bootMsgs, uid });
+        if (typeof window.CARESITS_THREAD_RENDER === "function") window.CARESITS_THREAD_RENDER();
       } catch { /* matches and the board stand in their empty states */ }
       resolve({ on: true, signedIn: true, uid });
     });
