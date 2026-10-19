@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { routeWrite, trustSeamFrom, publishTrust, refreshTrustName, writeDataFor, makeWriter, phaseCNameTargets, phaseCSeam, fetchPhaseC } from "./live.js";
+import { routeWrite, trustSeamFrom, publishTrust, refreshTrustName, writeDataFor, makeWriter, phaseCNameTargets, phaseCSeam, fetchPhaseC, activityStampPath } from "./live.js";
 let n = 0; const t = (name, fn) => { fn(); n += 1; console.log("ok -", name); };
 const ta = async (name, fn) => { await fn(); n += 1; console.log("ok -", name); };
 t("router: signed out refuses everything", () => { assert.equal(routeWrite("job", { data: {} }, "").ok, false); });
@@ -322,5 +322,10 @@ await ta("phase C fetch (F19): a member with nothing yet gets the empty seam, so
   const seam = await fetchPhaseC(fs, null, "u9", "family");
   assert.deepEqual(seam, { viewer: { uid: "u9", side: "family" }, rels: [], jobs: [], names: {} });
 });
+
+
+t("router: a fresh photo clears the lifecycle's swept stamp; a manual remove leaves it alone", () => { const r = routeWrite("photo", { photoUrl: "https://x/new.jpg" }, "a"); assert.equal(r.data.photoClearedAt, null); assert.equal(r.data.photoUrl, "https://x/new.jpg"); const c = routeWrite("photo", { photoUrl: "" }, "a"); assert.ok(!("photoClearedAt" in c.data)); });
+t("activity stamp: a carer stamps at the root seat", () => { assert.equal(activityStampPath("u1", "carer"), "_activity/u1"); });
+t("activity stamp: families never stamp, and no uid no stamp", () => { assert.equal(activityStampPath("u1", "family"), null); assert.equal(activityStampPath("", "carer"), null); assert.equal(activityStampPath(null, "carer"), null); });
 
 console.log(`\nALL ${n} live-router checks passed`);

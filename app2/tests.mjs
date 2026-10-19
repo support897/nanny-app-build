@@ -653,15 +653,23 @@ const { planSave } = await import("./account-save.js");
   });
   await gp.waitForTimeout(150);
   t("gallery (F14): with four saved there is no Add left, a fifth is refused by the shape", await gp.evaluate(() => document.querySelectorAll("#profileRoot .galleryThumb").length === 4 && document.querySelectorAll("#profileRoot .galleryAdd").length === 0));
-  // S-2: a text resume drafts and never uploads; a PDF uploads once and is never drafted from.
+  // S-2 (device-only resume model, Ilse 19 Oct 2026): a resume
+  // pick NEVER uploads, in any format; the words are read on
+  // this device and drafted from. A stub PDF yields no words,
+  // so the honest unread line stands. (This leg asserted the
+  // retired temp-upload until the device-only batch; the
+  // Chromium outage hid the stale copy, found on the shell
+  // route re-run, 19 Oct 2026.)
   await gp.evaluate(() => { window.__uploads = []; });
   await pickFile("#profileRoot .cardIn:last-of-type input[type=file]", "cv.txt", "text/plain", "Jane Carer, nanny in Sydney");
   await gp.waitForTimeout(400);
   t("resume (S-2): a text pick uploads nothing", await gp.evaluate(() => window.__uploads.length === 0));
   t("resume (S-2): a text pick is drafted from, never called unread", await gp.evaluate(() => !document.getElementById("profileRoot").textContent.includes("We could not read that file")));
   await pickFile("#profileRoot .cardIn:last-of-type input[type=file]", "cv.pdf", "application/pdf", "%PDF-1.4 stub");
-  await gp.waitForTimeout(400);
-  t("resume (S-2): a PDF pick uploads exactly once, to the resume path", await gp.evaluate(() => window.__uploads.length === 1 && window.__uploads[0].startsWith("resumes/u1/")));
+  // Extraction lazy-loads the PDF reader on the device; poll
+  // for its honest answer instead of racing a fixed wait.
+  await gp.waitForFunction(() => document.getElementById("profileRoot").textContent.includes("We could not read that file"), null, { timeout: 15000 }).catch(() => {});
+  t("resume (S-2): a PDF pick uploads nothing, ever (device only)", await gp.evaluate(() => window.__uploads.length === 0));
   t("resume (S-2): a PDF pick keeps the honest unread line", await gp.evaluate(() => document.getElementById("profileRoot").textContent.includes("We could not read that file")));
   t("gallery (F14): no page errors", gerrs.length === 0);
   await gp.close();
@@ -878,6 +886,56 @@ const { planSave } = await import("./account-save.js");
   await s2.p.waitForTimeout(300);
   t("Leg 11: Stop here finishes and the done screen names the computed level", await s2.p.evaluate(() => !document.getElementById("done").hidden && document.getElementById("doneLevel").textContent.includes("Quick Connect")));
   await s2.p.close();
+}
+
+// ---- Payments piece 2: the Plus gate + the plans sheet ----
+// The gate sits at the shell's nav choke point. Its legs pin the
+// exact fences: a locked family meets the sheet and the surface
+// does not switch; the in-app month and any paid record walk in;
+// carers are never gated; no member seam means no gate.
+{
+  const pp = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await pp.addInitScript(() => { try { sessionStorage.setItem("caresits-demo", "1"); } catch {} });
+  const perrs = [];
+  pp.on("pageerror", (e) => perrs.push(String(e)));
+  await pp.goto("http://localhost:8933/index.html", { waitUntil: "networkidle" });
+  await pp.waitForTimeout(300);
+  const setMe = (me) => pp.evaluate((m) => { if (m) window.CARESITS_ME = m; else delete window.CARESITS_ME; }, me);
+  await setMe({ uid: "f9", side: "family", plusExtras: false });
+  await pp.evaluate(() => window.CARESITS_NAV("daystory"));
+  await pp.waitForTimeout(200);
+  t("plans gate: a locked family tapping the Day Story meets the plans sheet, surface unswitched", await pp.evaluate(() => !!document.getElementById("plansPop") && document.getElementById("surface-daystory").hidden && document.getElementById("plansPop").textContent.includes("opens with a paid plan")));
+  t("plans sheet: all three plans offered, with the honest app route line (the enabling build's web face)", await pp.evaluate(() => { const s = document.getElementById("plansPop").textContent; return s.includes("Join Finding") && s.includes("Join Family Plus") && s.includes("Join Search Pass") && s.includes("Joining lives in the Caresitters app") && s.includes("Nothing is charged") && !s.includes("Restore a past purchase"); }));
+  await pp.evaluate(() => { window.__writes = []; window.CARESITS_WRITE = (kind, payload) => window.__writes.push([kind, payload]); });
+  await pp.evaluate(() => { const b = [...document.querySelectorAll("#plansPop button")].find((x) => x.textContent.includes("Search Pass")); b.click(); });
+  await pp.waitForTimeout(150);
+  t("plans sheet: Join Search Pass records plan interest and closes the sheet", await pp.evaluate(() => window.__writes.length === 1 && window.__writes[0][0] === "plans" && window.__writes[0][1].plan === "search-pass" && !document.getElementById("plansPop")));
+  await setMe({ uid: "f9", side: "family", plusExtras: true });
+  await pp.evaluate(() => window.CARESITS_NAV("daystory"));
+  await pp.waitForTimeout(150);
+  t("plans gate: a family with the extras open walks into the Day Story", await pp.evaluate(() => !document.getElementById("surface-daystory").hidden && !document.getElementById("plansPop")));
+  await setMe({ uid: "c9", side: "carer" });
+  await pp.evaluate(() => window.CARESITS_NAV("roster"));
+  await pp.waitForTimeout(150);
+  t("plans gate: a carer is never gated", await pp.evaluate(() => !document.getElementById("surface-roster").hidden && !document.getElementById("plansPop")));
+  await setMe(null);
+  await pp.evaluate(() => window.CARESITS_NAV("timesheet"));
+  await pp.waitForTimeout(150);
+  t("plans gate: no member seam, no gate (demo and previews stand)", await pp.evaluate(() => !document.getElementById("surface-timesheet").hidden && !document.getElementById("plansPop")));
+  await setMe({ uid: "f9", side: "family", plusExtras: false });
+  await pp.evaluate(() => window.CARESITS_TRUST_RENDER());
+  await pp.waitForTimeout(150);
+  t("plans: Settings offers Plans to a family", await pp.evaluate(() => !!document.getElementById("plansBtn")));
+  await pp.evaluate(() => document.getElementById("plansBtn").click());
+  await pp.waitForTimeout(150);
+  t("plans: the Settings sheet opens plainly, with no locked line", await pp.evaluate(() => !!document.getElementById("plansPop") && !document.getElementById("plansPop").textContent.includes("opens with a paid plan")));
+  await pp.evaluate(() => { const b = [...document.querySelectorAll("#plansPop button")].pop(); b.click(); });
+  await setMe({ uid: "c9", side: "carer" });
+  await pp.evaluate(() => window.CARESITS_TRUST_RENDER());
+  await pp.waitForTimeout(150);
+  t("plans: Settings hides Plans from a carer, always", await pp.evaluate(() => !document.getElementById("plansBtn")));
+  t("plans legs: no page errors", perrs.length === 0);
+  await pp.close();
 }
 
 console.log(`\nALL ${n} journey checks passed`);

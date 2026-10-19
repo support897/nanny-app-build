@@ -27,4 +27,8 @@ t("retail years alone give experience years null", () => { const d = draftFromTe
 t("lowercase first line gives no display name", () => { const d = draftFromText("maria lopez\nRandwick NSW 2031", opts); assert.ok(!("displayName" in d.answers)); });
 t("empty text gives ok false", () => { const d = draftFromText("", opts); assert.equal(d.ok, false); assert.deepEqual(d.answers, {}); assert.deepEqual(d.deep, {}); assert.deepEqual(d.marks, []); assert.deepEqual(d.spans, {}); assert.equal(d.experienceYears, null); });
 t("handoff without first aid adds no first aid key", () => { const d = draftFromText("Maria Lopez\nRandwick NSW 2031", opts); const h = buildHandoff(d); assert.ok(!("xC22" in h.answers)); assert.equal(h.feed, "resume"); });
+t("span claiming: a phone's head never drafts as the postcode", () => { const d = draftFromText("Ana Ruiz\nMobile 0412 555 018\nSpanish speaker", opts); assert.equal(d.answers.postcode, undefined); assert.ok(!d.marks.includes("postcode")); });
+t("span claiming: a genuine postcode elsewhere still extracts, phone first in the document", () => { const d = draftFromText("Ana Ruiz\nMobile 0412 555 018\nBondi NSW 2026", opts); assert.equal(d.answers.postcode, "2026"); assert.equal(d.spans.postcode, "2026"); });
+t("span claiming: a spaceless phone claims its run too", () => { const d = draftFromText("Ana Ruiz\nCall 0412555018\nPerth 6000", opts); assert.equal(d.answers.postcode, "6000"); });
+
 console.log(`\nALL ${n} resume checks passed`);

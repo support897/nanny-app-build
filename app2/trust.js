@@ -2,8 +2,9 @@ import { t as tr, currentLang, setLang } from "./lang.js";
 import { doneKey, draftKey } from "./storage-keys.js";
 import { downloadExport } from "./export.js";
 import { pushAvailable, getPushState, registerPush, togglePushKind } from "./push.js";
-import { uploadProfilePhoto, uploadGalleryPhoto, uploadToStorage, planResumePath } from "./photo.js";
+import { uploadProfilePhoto, uploadGalleryPhoto, deleteFromStorage, planPathFromUrl, removeProfilePhoto } from "./photo.js";
 import { draftFromText, buildHandoff } from "./resume.js";
+import { extractPdfText } from "./pdf-text.js";
 import { LANGS, NATIONALITIES } from "./questions.js";
 import { packById, packByName, checkFor } from "./countries.js";
 // Caresitters app2 — Phase D trust surfaces: Checks, Reviews,
@@ -112,7 +113,8 @@ export function renderProfile(root, me) {
   root.append(card);
   const pcard = el("div", "cardIn");
   pcard.append(el("h3", null, tr("photo.title")), el("p", null, tr("photo.body")));
-  if (me.photoUrl) { const im = el("img", "profilePhoto"); im.src = me.photoUrl; im.alt = ""; pcard.append(im); }
+  let photoImg = null;
+  if (me.photoUrl) { photoImg = el("img", "profilePhoto"); photoImg.src = me.photoUrl; photoImg.alt = ""; pcard.append(photoImg); }
   const pfile = el("input");
   pfile.type = "file";
   pfile.accept = "image/*";
@@ -139,6 +141,24 @@ export function renderProfile(root, me) {
       pcard.append(im, el("p", "gateMsg", tr("photo.deviceOnly")));
     }
   });
+  if (me.photoUrl) {
+    // The remove path (HQ deletion ruling, 19 Oct 2026): the
+    // object itself goes, not just the picture on the card, so
+    // nothing personal is left sitting in the bucket.
+    const prm = el("button", "quietBtn", tr("photo.remove"));
+    prm.type = "button";
+    prm.addEventListener("click", async () => {
+      const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
+      await removeProfilePhoto(uid);
+      write("photo", { photoUrl: "" });
+      if (window.CARESITS_ME) window.CARESITS_ME.photoUrl = "";
+      if (photoImg) photoImg.remove();
+      pick.textContent = tr("photo.add");
+      prm.remove();
+      pcard.append(el("p", "gateMsg", tr("photo.removed")));
+    });
+    pcard.append(prm);
+  }
   pcard.append(pick, pfile);
   root.append(pcard);
   if (me.side === "carer") {
@@ -167,9 +187,14 @@ export function renderProfile(root, me) {
         const rm = el("button", "quietBtn galleryRemove", tr("gallery.remove"));
         rm.type = "button";
         rm.addEventListener("click", () => {
+          const gone = gallery[i];
           gallery = gallery.filter((_, j) => j !== i);
           write("gallery", { gallery });
           if (window.CARESITS_ME) window.CARESITS_ME.gallery = gallery;
+          // The object goes too (HQ deletion ruling): dropping
+          // the list entry alone would orphan the file.
+          const p = planPathFromUrl(gone);
+          if (p) deleteFromStorage(p);
           renderStrip();
         });
         slot.append(im, rm);
@@ -213,6 +238,10 @@ export function renderProfile(root, me) {
   if (me.side === "carer") {
     const rcard = el("div", "cardIn");
     rcard.append(el("h3", null, tr("resume.title")), el("p", null, tr("resume.body")));
+    // The resume file is DEVICE ONLY (Ilse's model, storage
+    // ruling 19 Oct 2026): it is read on the phone, its facts
+    // are drafted, and it never uploads anywhere. There is
+    // no copy of it in the app, on any server, ever.
     const rfile = el("input");
     rfile.type = "file";
     rfile.accept = ".txt,.md,.pdf,text/plain,application/pdf";
@@ -239,7 +268,10 @@ export function renderProfile(root, me) {
       const use = el("button", "mainBtn", tr("resume.useBtn"));
       use.type = "button";
       use.addEventListener("click", () => {
-        try { localStorage.setItem("caresits-app2-resume-draft", JSON.stringify(buildHandoff(draft))); } catch { /* storage off */ }
+        try {
+          const h = buildHandoff(draft);
+          localStorage.setItem("caresits-app2-resume-draft", JSON.stringify(h));
+        } catch { /* storage off */ }
         out.append(el("p", "gateMsg", tr("resume.saved")));
       });
       out.append(use);
@@ -251,12 +283,20 @@ export function renderProfile(root, me) {
       const buf = await f.arrayBuffer();
       const head = new TextDecoder().decode(new Uint8Array(buf.slice(0, 5)));
       if (head.startsWith("%PDF")) {
-        // S-2: storage holds PDFs alone (the storage rules
-        // fence admits nothing else). A PDF is kept on the
-        // profile; its words are never drafted from.
-        const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
-        if (uid) { const path = planResumePath(uid, f.name); if (path) uploadToStorage(path, new Blob([buf], { type: "application/pdf" })); }
-        out.replaceChildren(el("p", "gateMsg", tr("resume.unread")));
+        // Extraction (Ilse's model): the PDF's own words are
+        // read ON THE DEVICE and drafted exactly like pasted
+        // words, grounded spans only. The file itself never
+        // uploads: there is no server copy to hold, discard
+        // or leak, which is stronger than any temp lifecycle.
+        // A PDF with no words in it (a scan) falls to the
+        // honest line.
+        let words = "";
+        try { words = await extractPdfText(new Uint8Array(buf)); } catch { words = ""; }
+        if (words && words.trim()) {
+          runDraft(words);
+        } else {
+          out.replaceChildren(el("p", "gateMsg", tr("resume.unread")));
+        }
         return;
       }
       // A text pick drafts from its own words and is never
@@ -359,6 +399,21 @@ export function renderSettings(root) {
   }
   langCard.append(langRow);
   root.append(langCard);
+  // Plans entry (payments chapter): families only. A carer account
+  // never sees a purchase surface (carers have no tiers, ever), so
+  // the card stands unless the viewer is known to be a carer. The
+  // button opens the plans sheet through its seam.
+  const sideNow = ((window.CARESITS_TRUST || {}).me || {}).side || (window.CARESITS_ME || {}).side || "";
+  if (sideNow !== "carer") {
+    const plansCard = el("div", "findCard");
+    plansCard.append(el("h3", "findName", tr("plans.title")));
+    const plansBtn = el("button", "mainBtn", tr("plans.title"));
+    plansBtn.type = "button";
+    plansBtn.id = "plansBtn";
+    plansBtn.addEventListener("click", () => { if (typeof window.CARESITS_OPEN_PLANS === "function") window.CARESITS_OPEN_PLANS(); });
+    plansCard.append(plansBtn);
+    root.append(plansCard);
+  }
   // Push switches stand only when the native seam is live on
   // this device (Security fence: no controls that cannot
   // work). The switches write this device's own doc, which

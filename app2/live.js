@@ -7,6 +7,16 @@
 // carries ?twin=1; every other visit uses the production
 // config beside this file.
 import { levelOf } from "./levels.js";
+import { resolvePlan, entitlementFromRecord, plusExtrasOpen } from "../accounts/account.js";
+
+// The photo lifecycle stamp path (HQ spec, 19 Oct 2026):
+// carers only, at the root, beside _comp and _entitlements.
+// The stamp is guarded by the rules arm in the v5 fold: the
+// one key must equal the server's own clock, so it can never
+// be forged or backdated by any client.
+export function activityStampPath(uid, side) {
+  return uid && side === "carer" ? `_activity/${uid}` : null;
+}
 
 export function routeWrite(kind, payload, uid) {
   if (!uid) return { ok: false, reason: "signed-out" };
@@ -26,8 +36,18 @@ export function routeWrite(kind, payload, uid) {
     case "bin-delete": return { ok: true, op: "delete", path: payload.path };
     case "bin-restore": return { ok: true, op: "binRestore", binPath: payload.binPath, originPath: payload.originPath, originId: payload.originId || null, data: payload.data };
     case "dayStory-remove": return { ok: true, op: "delete", path: `users/${uid}/dayStory/${payload.id}` };
-    case "photo": return { ok: true, op: "merge", path: `profiles/${uid}`, data: { photoUrl: payload.photoUrl } };
+    // A fresh photo also clears the lifecycle's swept stamp
+    // (Ilse's ruling, 19 Oct 2026): the carer returns, adds a
+    // photo, and the profile is back in family search. A
+    // manual remove leaves the stamp as it stands.
+    case "photo": return { ok: true, op: "merge", path: `profiles/${uid}`, data: payload.photoUrl ? { photoUrl: payload.photoUrl, photoClearedAt: null } : { photoUrl: payload.photoUrl } };
     case "gallery": return { ok: true, op: "merge", path: `profiles/${uid}`, data: { card: { gallery: (Array.isArray(payload.gallery) ? payload.gallery : []).filter((u) => typeof u === "string" && u).slice(0, 4) } } };
+    // The resume file record names a TEMPORARY object only
+    // (Ilse's resume model, 19 Oct 2026): an uploaded resume is
+    // an extraction waiting to be confirmed, never a kept or
+    // family visible document. The name rides the profile doc
+    // so the discard, the confirm and the account deletion can
+    // each remove the object itself.
     case "dayStory": return { ok: true, op: "add", path: `users/${uid}/dayStory`, data: { day: payload.day, tile: payload.tile, note: payload.note, at: payload.at } };
     case "photo-request": return { ok: true, op: "add", path: `users/${uid}/dayStory`, data: { day: payload.day, tile: "Photo moment", note: "A photo of the kids was asked for", at: payload.at } };
     case "timesheet": return { ok: true, op: "add", path: `users/${uid}/timesheets`, data: { day: payload.day, hours: payload.hours } };
@@ -287,6 +307,63 @@ export async function bootLive() {
         window.CARESITS_ME = { uid, side: profile.side || "", name: profile.displayName || "" };
         window.CARESITS_PROFILE_COMPLETE = !!(profile.displayName && q.exists());
       } catch { /* the surfaces stand in their empty states */ }
+      // The entitlement record (payments chapter §3): read at boot
+      // for family accounts only. Carers never read it, and no free
+      // feature reads it; the gates take the resolved plan from this
+      // seam. A missing or unreachable record resolves to the free
+      // taste, which is the record's own answer for most families.
+      try {
+        const side = profile.side || "";
+        const createdRaw = u.metadata && u.metadata.creationTime ? Date.parse(u.metadata.creationTime) : NaN;
+        const createdAtMs = Number.isNaN(createdRaw) ? null : createdRaw;
+        let payment = null;
+        if (side !== "carer") {
+          const ent = await fs.getDoc(docAt(`_entitlements/${uid}`));
+          payment = entitlementFromRecord(ent.exists() ? ent.data() : null, Date.now());
+        }
+        const plan = resolvePlan({ side, comp: null, payment, now: Date.now() });
+        window.CARESITS_PLAN = plan;
+        window.CARESITS_ME = {
+          ...(window.CARESITS_ME || { uid }),
+          plan,
+          plusExtras: plusExtrasOpen({ plan, side, createdAtMs, now: Date.now() }),
+        };
+        // The purchase flow's refresh seam (enabling build):
+        // after a buy or a restore, the webhook writes the
+        // record within moments; this re-reads it and
+        // republishes the same seams, so the gates open in
+        // the same session without a restart. Retried a few
+        // times because the webhook can lag the store's own
+        // answer by seconds.
+        window.CARESITS_REFRESH_PLAN = async () => {
+          for (const wait of [0, 2500, 5000]) {
+            if (wait) await new Promise((r) => setTimeout(r, wait));
+            try {
+              const ent2 = await fs.getDoc(docAt(`_entitlements/${uid}`));
+              const payment2 = entitlementFromRecord(ent2.exists() ? ent2.data() : null, Date.now());
+              const plan2 = resolvePlan({ side, comp: null, payment: payment2, now: Date.now() });
+              const before = window.CARESITS_PLAN && window.CARESITS_PLAN.tier;
+              window.CARESITS_PLAN = plan2;
+              window.CARESITS_ME = {
+                ...(window.CARESITS_ME || { uid }),
+                plan: plan2,
+                plusExtras: plusExtrasOpen({ plan: plan2, side, createdAtMs, now: Date.now() }),
+              };
+              if (plan2.tier !== before || plan2.pass) break;
+            } catch { /* a later attempt or the next boot reads it */ }
+          }
+        };
+      } catch { /* no record reachable: the free taste stands */ }
+      // The photo lifecycle stamp (HQ spec, 19 Oct 2026): a
+      // carer opening the signed-in app refreshes lastActiveAt.
+      // The value is the server's own clock and nothing else,
+      // which is the only value the rules arm admits. Fail
+      // soft: until the arm is published the write refuses,
+      // and the boot never breaks over a stamp.
+      try {
+        const stampPath = activityStampPath(uid, profile.side || "");
+        if (stampPath) await fs.setDoc(docAt(stampPath), { lastActiveAt: fs.serverTimestamp() }, { merge: true });
+      } catch { /* the stamp waits for its rules arm */ }
       try {
         const grab = async (path) => {
           const snap = await fs.getDocs(colAt(path));

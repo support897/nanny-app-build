@@ -90,8 +90,16 @@ export function renderBoard(root, viewer, jobs) {
     form.append(when, suburb, note, post, msg);
     root.append(form);
   }
+  if (!jobs.length) {
+    const box = el("div", "cardIn");
+    const img = el("img", "bunnyBig");
+    img.src = "bunny/bunny-rest-calm.png";
+    img.alt = tr("find.bunnyRest");
+    box.append(img, el("h3", null, tr("board.emptyTitle")), el("p", null, tr("board.none")));
+    root.append(box);
+    return;
+  }
   const list = el("div", "findList");
-  if (!jobs.length) list.append(el("p", null, tr("board.none")));
   for (const job of jobs) {
     const card = el("article", "findCard");
     card.append(el("h3", "findName", job.postcode ? tr("find.postcode", undefined, { n: job.postcode }) : tr("board.nearby")));
@@ -134,6 +142,11 @@ function bootPhaseC() {
     if (plan.ok) { write("contact", plan); document.querySelector('[data-nav="matches"]')?.click(); }
   };
 }
+
+// The live bridge fills CARESITS_PHASE_C when the member's own
+// world lands (F19) and calls this seam to render it in place,
+// the way the trust surfaces refresh on their render seam.
+window.CARESITS_PHASE_C_RENDER = bootPhaseC;
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootPhaseC);
 else bootPhaseC();

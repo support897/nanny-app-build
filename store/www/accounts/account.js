@@ -56,9 +56,86 @@ export function tasteDayKey(date) {
   return d.toISOString().slice(0, 10);
 }
 
+// ---------- The entitlement record (payments chapter, Finance §3) ----------
+// One record per user, at _entitlements/{uid}, written ONLY by the
+// payment path (the RevenueCat and Stripe webhook receivers). The
+// client reads its own record and can never write it: the rules deny
+// every client write to that path. Free features never read the
+// record at all, and carers never touch it: no products, no
+// entitlement, no paywall for carers, ever.
+//
+// Record fields (Finance §3, verbatim): app_user_id, entitlement,
+// status (trialing, active, past_due, cancelled, expired), product,
+// lane, trial_ends_at, period_ends_at, expires_at, updated_at,
+// source_event_id. The entitlement words are the chapter §2 IDs;
+// family_plus is the record's word for PLANS.FAMILY_PLUS here.
+const ENTITLEMENT_TIERS = { finding: PLANS.FINDING, family_plus: PLANS.FAMILY_PLUS };
+
+// Record times may arrive as Firestore timestamps, millis, or ISO
+// strings; the adapter reads all three and trusts none blindly.
+function tsToMs(v) {
+  if (v == null) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string") { const t = Date.parse(v); return Number.isNaN(t) ? null : t; }
+  if (typeof v.toMillis === "function") { try { return v.toMillis(); } catch { return null; } }
+  if (typeof v.seconds === "number") return v.seconds * 1000 + Math.floor((v.nanoseconds || 0) / 1e6);
+  return null;
+}
+
+// Maps one record onto the payment shape resolvePlan understands, or
+// null when the record opens nothing. The unlock rule is Finance §3:
+// status trialing or active with the period still running opens the
+// door; a cancelled plan stays open until its period ends and shuts
+// after; past_due, expired, and no record stay shut. A Search Pass
+// opens the Finding door only inside its own window (chapter §4):
+// the window lives in expires_at, never in the store product.
+export function entitlementFromRecord(rec, now) {
+  if (!rec || typeof rec !== "object") return null;
+  if (rec.entitlement === "search_pass") {
+    const ends = tsToMs(rec.expires_at);
+    if (rec.status === "active" && ends != null && now < ends) return { pass: { endsAt: ends } };
+    return null;
+  }
+  const tier = ENTITLEMENT_TIERS[rec.entitlement];
+  if (!tier) return null;
+  const periodEnd = tsToMs(rec.period_ends_at) ?? tsToMs(rec.trial_ends_at);
+  // A trialing status opens Family Plus only. Finding has NO trial
+  // ever (her word, 15 Oct 2026): a trialing Finding record opens
+  // nothing, whatever wrote it.
+  if (rec.status === "trialing" && tier !== PLANS.FAMILY_PLUS) return null;
+  if (rec.status === "active" || rec.status === "trialing") {
+    if (periodEnd != null && now >= periodEnd) return null;
+    return { plan: tier, status: "active", currentPeriodEnd: periodEnd };
+  }
+  if (rec.status === "cancelled") {
+    if (periodEnd != null && now < periodEnd) return { plan: tier, status: "active", currentPeriodEnd: periodEnd };
+    return null;
+  }
+  return null;
+}
+
+// ---------- The in-app free month (chapter §9, SR flag adopted) ----------
+// Family Plus carries one free month, and the mechanism is IN-APP:
+// account age, no payment method, no store intro offer anywhere. It
+// is derived here from the server issued account creation time,
+// never a local flag and never cached, and it ends into the free
+// taste on its own. FEATURE-SPLIT's Free Month column is the scope:
+// the month opens the Family Plus extras (Day Story, roster,
+// timesheets, day summaries) and NOT the Finding door, so messaging
+// stays on the free taste all month. Finding has no free month of
+// any kind, and nothing in this section can open its door.
+export const PLUS_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function plusExtrasOpen({ plan, side, createdAtMs, now }) {
+  if (side === "carer") return true;
+  if (plan && plan.tier === PLANS.FAMILY_PLUS) return true;
+  if (createdAtMs != null && now >= createdAtMs && now - createdAtMs < PLUS_MONTH_MS) return true;
+  return false;
+}
+
 // ---------- Browser shell (dormant until the config lands) ----------
 
-const SDK = "https://www.gstatic.com/firebasejs/10.12.2";
+const SDK = "./sdk";
 let _auth = null;
 let _db = null;
 let _user = null;
@@ -105,8 +182,13 @@ async function ensureProfile(fsMod, u) {
     const batch = writeBatch(_db);
     batch.set(ref, profile);
     batch.set(
-      doc(_db, "_owner", "aggregates", "people", "main"),
-      { total: increment(1), weekly: { [isoWeekKey(new Date())]: increment(1) } },
+      doc(_db, "_owner", "aggregates", "peopleTotal", "main"),
+      { total: increment(1) },
+      { merge: true }
+    );
+    batch.set(
+      doc(_db, "_owner", "aggregates", "peopleWeekly", isoWeekKey(new Date())),
+      { count: increment(1) },
       { merge: true }
     );
     await batch.commit();
@@ -126,14 +208,53 @@ export function isoWeekKey(date) {
 
 // ---------- The three doors ----------
 
+// Native shell: inside the packaged app the social doors run
+// through the Capacitor Firebase Authentication plugin (the
+// native Google and Apple sheets), and the plugin's credential
+// is handed to this same JS SDK session with
+// signInWithCredential, so the profile machinery above never
+// learns which road was taken. cap sync registers the plugin
+// on the native side; the web layer reaches it through the
+// bridge at window.Capacitor.Plugins.FirebaseAuthentication.
+// The plugin's own JS entry does registerPlugin under that
+// same name, but importing it would need a bundler and this
+// app has none, so the guarded bridge access is the road.
+// On the web there is no native bridge and the popup stands.
+function nativeAuthPlugin() {
+  if (typeof window === "undefined") return null;
+  const cap = window.Capacitor;
+  if (!cap || typeof cap.isNativePlatform !== "function" || !cap.isNativePlatform()) return null;
+  const plugin = cap.Plugins && cap.Plugins.FirebaseAuthentication;
+  if (!plugin || typeof plugin.signInWithGoogle !== "function" || typeof plugin.signInWithApple !== "function") return null;
+  return plugin;
+}
+
 export async function signInGoogle() {
   const m = await import(`${SDK}/firebase-auth.js`);
+  const plugin = nativeAuthPlugin();
+  if (plugin) {
+    const result = await plugin.signInWithGoogle();
+    const credential = result && result.credential;
+    if (!credential || !credential.idToken) throw new Error("native sign in returned no credential");
+    return m.signInWithCredential(_auth, m.GoogleAuthProvider.credential(credential.idToken));
+  }
   return m.signInWithPopup(_auth, new m.GoogleAuthProvider());
 }
 
 export async function signInApple() {
   const m = await import(`${SDK}/firebase-auth.js`);
   const provider = new m.OAuthProvider("apple.com");
+  const plugin = nativeAuthPlugin();
+  if (plugin) {
+    const result = await plugin.signInWithApple();
+    const credential = result && result.credential;
+    if (!credential || !credential.idToken) throw new Error("native sign in returned no credential");
+    // The plugin's nonce is the raw nonce Apple signed into
+    // the id token: it rides verbatim as rawNonce below,
+    // never hashed a second time (the plugin presented the
+    // hashed nonce to Apple when it opened the sheet).
+    return m.signInWithCredential(_auth, provider.credential({ idToken: credential.idToken, rawNonce: credential.nonce }));
+  }
   return m.signInWithPopup(_auth, provider);
 }
 
@@ -150,6 +271,10 @@ export async function signInEmail(email, password, name) {
         _pendingName = name || "";
         const cred = await m.createUserWithEmailAndPassword(_auth, email, password);
         if (name) { try { await m.updateProfile(cred.user, { displayName: name }); } catch { /* name rides the profile doc */ } }
+        // A creation at sign in is never silent (HQ ruling on the
+        // remainder round's Leg 19): the credential carries the
+        // mark, so every door announces the creation out loud.
+        cred.createdAccount = true;
         return cred;
       } catch {
         throw e;
@@ -205,6 +330,38 @@ export async function deleteMyAccount() {
   if (!_user) throw new Error("not signed in");
   const fsMod = await import(`${SDK}/firebase-firestore.js`);
   const { doc, collection, getDocs, writeBatch } = fsMod;
+  // Storage objects (HQ deletion ruling, 19 Oct 2026): the
+  // profile photo, the four gallery slots and any temporary
+  // resume file are the user's personal files in the bucket,
+  // and the account deletion removes them too, here, while
+  // the session is live. Each delete is fail soft: a missing
+  // object must never block the account deletion itself. The
+  // resume name rides the profile doc; its path is sanitised
+  // with the same rule the uploader uses (the account layer
+  // cannot import the app layer, so the rule is read here).
+  try {
+    const appMod = await import(`${SDK}/firebase-app.js`);
+    const stMod = await import(`${SDK}/firebase-storage.js`);
+    let app = null;
+    try { app = appMod.getApp(); } catch { app = (appMod.getApps() || [])[0] || null; }
+    if (app) {
+      const storage = stMod.getStorage(app);
+      let resumeFile = "";
+      try {
+        const prof = await fsMod.getDoc(doc(_db, "profiles", _user.uid));
+        if (prof.exists()) resumeFile = prof.data().resumeFile || "";
+      } catch { /* the fixed paths still go */ }
+      const uid = _user.uid;
+      const paths = [
+        `profile-photos/${uid}/photo.jpg`,
+        ...[1, 2, 3, 4].map((s) => `profile-photos/${uid}/extra-${s}.jpg`),
+        ...(resumeFile ? [`resumes/${uid}/${String(resumeFile).replace(/[^A-Za-z0-9._]/g, "_")}`] : []),
+      ];
+      for (const p of paths) {
+        try { await stMod.deleteObject(stMod.ref(storage, p)); } catch { /* not there: nothing to orphan */ }
+      }
+    }
+  } catch { /* storage may be closed; the deletion proceeds */ }
   const subs = ["children", "dayStory", "roster", "timesheets", "documents", "messages", "jobs"];
   const batch = writeBatch(_db);
   for (const sub of subs) {
@@ -226,6 +383,9 @@ export async function deleteMyAccount() {
   const invSnap = await getDocs(query(collection(_db, "invites"), where("familyUid", "==", _user.uid)));
   invSnap.forEach((d) => batch.delete(d.ref));
   batch.delete(doc(_db, "users", _user.uid, "meta", "app"));
+  // The lifecycle stamp dies with the account (its rules arm
+  // allows the owner delete for exactly this walk).
+  batch.delete(doc(_db, "_activity", _user.uid));
   batch.delete(doc(_db, "users", _user.uid));
   await batch.commit();
   const m = await import(`${SDK}/firebase-auth.js`);

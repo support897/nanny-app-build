@@ -22,8 +22,18 @@ const el = (tag, cls, text) => {
 const write = (kind, payload) => { if (typeof window.CARESITS_WRITE === "function") window.CARESITS_WRITE(kind, payload); };
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
+// The export seam. This module's renders are the commit points
+// for children and the Day Story: every add, save and remove
+// re renders with the new list, so the mirror below always
+// holds what is on screen right now. window.CARESITS_FAMILY is
+// assigned once at boot (the live layer) and never moves again,
+// so the exporter reads through CARESITS_FAMILY_NOW and a same
+// session add is never left out of the user's own copy.
+const familyNow = { children: [], entries: [], side: "family" };
+
 export function renderChildren(root, rawChildren) {
   const children = (rawChildren || []).map((kid) => normaliseChild(kid));
+  familyNow.children = children;
   root.replaceChildren();
   root.append(el("h2", "findTitle", tr("shell.children")));
   if (!children.length) {
@@ -82,16 +92,17 @@ export function renderChildren(root, rawChildren) {
   const add = el("button", "mainBtn", tr("family.add"));
   add.type = "button";
   add.id = "kAdd";
+  const formMsg = el("p", "formMsg");
   add.addEventListener("click", () => {
     const n = name.value.trim();
-    if (!n) return;
+    if (!n) { formMsg.textContent = tr("form.needChild"); return; }
     const ageYears = ageSel.value === "" ? null : Number(ageSel.value);
     const loves = INTERESTS.map((l) => l.id).filter((id) => pickedLoves.has(id));
     write("child-add", { name: n, theme: themeSel.value, ageYears, loves });
     const kid = { id: "local-" + Date.now(), name: n, theme: themeSel.value, ageYears, loves };
     renderChildren(root, [...children, kid]);
   });
-  form.append(name, themeSel, ageSel, loveLabel, loveRow, add);
+  form.append(name, themeSel, ageSel, loveLabel, loveRow, add, formMsg);
   root.append(form);
 }
 
@@ -107,7 +118,9 @@ function confirmRemove(kid, card) {
   yes.addEventListener("click", () => {
     const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
     if (uid) { const plan = planBinMove({ uid, kind: "child", record: kid, nowIso: new Date().toISOString() }); if (plan.ok) write("bin-move", { path: plan.path, data: plan.data }); }
-    write("child-remove", { id: kid.id }); card.remove(); wrap.remove();
+    write("child-remove", { id: kid.id });
+    familyNow.children = familyNow.children.filter((k) => k.id !== kid.id);
+    card.remove(); wrap.remove();
   });
   const no = el("button", "closeBtn", tr("family.keep"));
   no.type = "button";
@@ -118,6 +131,8 @@ function confirmRemove(kid, card) {
 }
 
 export function renderDayStory(root, entries, side) {
+  familyNow.entries = entries;
+  if (side) familyNow.side = side;
   root.replaceChildren();
   root.append(el("h2", "findTitle", tr("shell.daystory")));
   root.append(el("p", "findPool", tr("family.storyLead")));
@@ -183,6 +198,32 @@ export function renderDayStory(root, entries, side) {
   }
 }
 
+// The bin restore seam. A restore in bin.js writes through
+// the live layer and never passes through this module, so
+// without this the mirror (and the screens) would not see the
+// record again until the next boot. bin.js calls noteRestored
+// after a restore lands; the record re enters through the
+// same render paths as every other commit, so the mirror
+// keeps holding what is on screen right now.
+export function noteRestored(kind, record) {
+  if (!record || typeof record !== "object") return;
+  if (kind === "child") {
+    const kid = normaliseChild(record);
+    if (familyNow.children.some((k) => k.id === kid.id)) return;
+    familyNow.children = [...familyNow.children, kid];
+    const root = typeof document !== "undefined" ? document.getElementById("childrenRoot") : null;
+    if (root) renderChildren(root, familyNow.children);
+  } else if (kind === "dayStory") {
+    const same = record.id != null
+      ? (e) => e.id === record.id
+      : (e) => e.day === record.day && e.tile === record.tile && e.at === record.at && e.note === record.note;
+    if (familyNow.entries.some(same)) return;
+    familyNow.entries = [record, ...familyNow.entries];
+    const root = typeof document !== "undefined" ? document.getElementById("daystoryRoot") : null;
+    if (root) renderDayStory(root, familyNow.entries, familyNow.side);
+  }
+}
+
 import { t as tr } from "./lang.js";
 import { planBinMove } from "./bin.js";
 import { INTERESTS, normaliseChild } from "./activities.js";
@@ -203,6 +244,9 @@ function bootFamily() {
   const cRoot = document.getElementById("childrenRoot");
   const dRoot = document.getElementById("daystoryRoot");
   const d = window.CARESITS_FAMILY || { children: [], entries: [], side: "family" };
+  familyNow.children = d.children || [];
+  familyNow.entries = d.entries || [];
+  familyNow.side = d.side || "family";
   if (cRoot) renderChildren(cRoot, d.children || []);
   if (dRoot) renderDayStory(dRoot, d.entries || [], d.side || "family");
   const tl = document.getElementById("todayLine");
@@ -216,4 +260,9 @@ function bootFamily() {
 if (typeof document !== "undefined") {
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootFamily);
   else bootFamily();
+}
+
+if (typeof window !== "undefined") {
+  window.CARESITS_FAMILY_NOW = () => ({ children: familyNow.children, entries: familyNow.entries, side: familyNow.side });
+  window.CARESITS_FAMILY_RESTORE = noteRestored;
 }

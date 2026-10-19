@@ -1,8 +1,10 @@
 import { t as tr, currentLang, setLang } from "./lang.js";
+import { doneKey, draftKey } from "./storage-keys.js";
 import { downloadExport } from "./export.js";
 import { pushAvailable, getPushState, registerPush, togglePushKind } from "./push.js";
-import { uploadProfilePhoto, uploadToStorage, planResumePath } from "./photo.js";
+import { uploadProfilePhoto, uploadGalleryPhoto, deleteFromStorage, planPathFromUrl, removeProfilePhoto } from "./photo.js";
 import { draftFromText, buildHandoff } from "./resume.js";
+import { extractPdfText } from "./pdf-text.js";
 import { LANGS, NATIONALITIES } from "./questions.js";
 import { packById, packByName, checkFor } from "./countries.js";
 // Caresitters app2 — Phase D trust surfaces: Checks, Reviews,
@@ -38,9 +40,9 @@ function viewerCountryName() {
   if ((window.CARESITS_ME || {}).country) return window.CARESITS_ME.country;
   if (me.country) return me.country;
   try {
-    const q = JSON.parse(localStorage.getItem("caresits-app2-questionnaire") || "null");
+    const q = JSON.parse(localStorage.getItem(doneKey()) || "null");
     if (q && (q.country || (q.answers && q.answers.country))) return q.country || q.answers.country;
-    const d = JSON.parse(localStorage.getItem("caresits-app2-draft") || "null");
+    const d = JSON.parse(localStorage.getItem(draftKey()) || "null");
     if (d && d.answers && d.answers.country) return d.answers.country;
   } catch { /* no local copy */ }
   return "Australia";
@@ -99,6 +101,10 @@ export function renderProfile(root, me) {
   const card = el("div", "findCard");
   card.append(el("h3", "findName", me.name || tr("trust.nameWaits")));
   card.append(el("p", "findPlace", (me.side === "carer" ? tr("trust.sideCarer") : tr("trust.sideFamily")) + (me.postcode ? " · " + tr("find.postcode", undefined, { n: me.postcode }) : "")));
+  if (me.level) {
+    card.append(el("p", "findPlace", tr("level.profileLabel")));
+    card.append(el("p", null, tr("level." + me.level)));
+  }
   card.append(el("p", null, tr("trust.profileBody")));
   const go = el("button", "mainBtn", tr("trust.seeQ"));
   go.type = "button";
@@ -107,7 +113,8 @@ export function renderProfile(root, me) {
   root.append(card);
   const pcard = el("div", "cardIn");
   pcard.append(el("h3", null, tr("photo.title")), el("p", null, tr("photo.body")));
-  if (me.photoUrl) { const im = el("img", "profilePhoto"); im.src = me.photoUrl; im.alt = ""; pcard.append(im); }
+  let photoImg = null;
+  if (me.photoUrl) { photoImg = el("img", "profilePhoto"); photoImg.src = me.photoUrl; photoImg.alt = ""; pcard.append(photoImg); }
   const pfile = el("input");
   pfile.type = "file";
   pfile.accept = "image/*";
@@ -117,6 +124,9 @@ export function renderProfile(root, me) {
   pick.addEventListener("click", () => pfile.click());
   pfile.addEventListener("change", async () => {
     const f = pfile.files && pfile.files[0];
+    // F21: clear the pick at once, so picking the same file
+    // again still fires change.
+    pfile.value = "";
     if (!f) return;
     const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
     const res = await uploadProfilePhoto(uid, f);
@@ -131,11 +141,107 @@ export function renderProfile(root, me) {
       pcard.append(im, el("p", "gateMsg", tr("photo.deviceOnly")));
     }
   });
+  if (me.photoUrl) {
+    // The remove path (HQ deletion ruling, 19 Oct 2026): the
+    // object itself goes, not just the picture on the card, so
+    // nothing personal is left sitting in the bucket.
+    const prm = el("button", "quietBtn", tr("photo.remove"));
+    prm.type = "button";
+    prm.addEventListener("click", async () => {
+      const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
+      await removeProfilePhoto(uid);
+      write("photo", { photoUrl: "" });
+      if (window.CARESITS_ME) window.CARESITS_ME.photoUrl = "";
+      if (photoImg) photoImg.remove();
+      pick.textContent = tr("photo.add");
+      prm.remove();
+      pcard.append(el("p", "gateMsg", tr("photo.removed")));
+    });
+    pcard.append(prm);
+  }
   pcard.append(pick, pfile);
   root.append(pcard);
   if (me.side === "carer") {
+    // F14: up to four more photos. The saved list rides the
+    // card (card.gallery, slot order) and every change writes
+    // the whole list through the gallery seam. A pick with no
+    // storage path answers with a device preview instead,
+    // exactly like the main photo (F12).
+    const gcard = el("div", "cardIn galleryCard");
+    gcard.append(el("h3", null, tr("gallery.title")), el("p", null, tr("gallery.body")));
+    let gallery = (Array.isArray(me.gallery) ? me.gallery : []).filter((u) => typeof u === "string" && u).slice(0, 4);
+    const previews = [];
+    const strip = el("div", "galleryStrip");
+    const gfile = el("input");
+    gfile.type = "file";
+    gfile.accept = "image/*";
+    gfile.hidden = true;
+    gfile.className = "galleryFile";
+    const renderStrip = () => {
+      strip.replaceChildren();
+      gallery.forEach((url, i) => {
+        const slot = el("div", "gallerySlot");
+        const im = el("img", "galleryThumb");
+        im.src = url;
+        im.alt = "";
+        const rm = el("button", "quietBtn galleryRemove", tr("gallery.remove"));
+        rm.type = "button";
+        rm.addEventListener("click", () => {
+          const gone = gallery[i];
+          gallery = gallery.filter((_, j) => j !== i);
+          write("gallery", { gallery });
+          if (window.CARESITS_ME) window.CARESITS_ME.gallery = gallery;
+          // The object goes too (HQ deletion ruling): dropping
+          // the list entry alone would orphan the file.
+          const p = planPathFromUrl(gone);
+          if (p) deleteFromStorage(p);
+          renderStrip();
+        });
+        slot.append(im, rm);
+        strip.append(slot);
+      });
+      for (const dataUrl of previews) {
+        const slot = el("div", "gallerySlot");
+        const im = el("img", "galleryThumb");
+        im.src = dataUrl;
+        im.alt = "";
+        slot.append(im);
+        strip.append(slot);
+      }
+      for (let s = gallery.length + previews.length; s < 4; s += 1) {
+        const add = el("button", "mainBtn galleryAdd", tr("gallery.add"));
+        add.type = "button";
+        add.addEventListener("click", () => gfile.click());
+        strip.append(add);
+      }
+      if (previews.length) strip.append(el("p", "gateMsg", tr("photo.deviceOnly")));
+    };
+    gfile.addEventListener("change", async () => {
+      const f = gfile.files && gfile.files[0];
+      gfile.value = "";
+      if (!f) return;
+      const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
+      const res = await uploadGalleryPhoto(uid, f, gallery.length + 1);
+      if (res.ok && res.url) {
+        gallery = [...gallery, res.url].slice(0, 4);
+        write("gallery", { gallery });
+        if (window.CARESITS_ME) window.CARESITS_ME.gallery = gallery;
+      } else if (res.dataUrl) {
+        previews.push(res.dataUrl);
+      }
+      renderStrip();
+    });
+    renderStrip();
+    gcard.append(strip, gfile);
+    root.append(gcard);
+  }
+  if (me.side === "carer") {
     const rcard = el("div", "cardIn");
     rcard.append(el("h3", null, tr("resume.title")), el("p", null, tr("resume.body")));
+    // The resume file is DEVICE ONLY (Ilse's model, storage
+    // ruling 19 Oct 2026): it is read on the phone, its facts
+    // are drafted, and it never uploads anywhere. There is
+    // no copy of it in the app, on any server, ever.
     const rfile = el("input");
     rfile.type = "file";
     rfile.accept = ".txt,.md,.pdf,text/plain,application/pdf";
@@ -162,19 +268,39 @@ export function renderProfile(root, me) {
       const use = el("button", "mainBtn", tr("resume.useBtn"));
       use.type = "button";
       use.addEventListener("click", () => {
-        try { localStorage.setItem("caresits-app2-resume-draft", JSON.stringify(buildHandoff(draft))); } catch { /* storage off */ }
+        try {
+          const h = buildHandoff(draft);
+          localStorage.setItem("caresits-app2-resume-draft", JSON.stringify(h));
+        } catch { /* storage off */ }
         out.append(el("p", "gateMsg", tr("resume.saved")));
       });
       out.append(use);
     };
     rfile.addEventListener("change", async () => {
       const f = rfile.files && rfile.files[0];
+      rfile.value = "";
       if (!f) return;
       const buf = await f.arrayBuffer();
       const head = new TextDecoder().decode(new Uint8Array(buf.slice(0, 5)));
-      const uid = window.CARESITS_ME && window.CARESITS_ME.uid;
-      if (uid) { const path = planResumePath(uid, f.name); if (path) uploadToStorage(path, new Blob([buf])); }
-      if (head.startsWith("%PDF")) { out.replaceChildren(el("p", "gateMsg", tr("resume.unread"))); return; }
+      if (head.startsWith("%PDF")) {
+        // Extraction (Ilse's model): the PDF's own words are
+        // read ON THE DEVICE and drafted exactly like pasted
+        // words, grounded spans only. The file itself never
+        // uploads: there is no server copy to hold, discard
+        // or leak, which is stronger than any temp lifecycle.
+        // A PDF with no words in it (a scan) falls to the
+        // honest line.
+        let words = "";
+        try { words = await extractPdfText(new Uint8Array(buf)); } catch { words = ""; }
+        if (words && words.trim()) {
+          runDraft(words);
+        } else {
+          out.replaceChildren(el("p", "gateMsg", tr("resume.unread")));
+        }
+        return;
+      }
+      // A text pick drafts from its own words and is never
+      // uploaded (S-2).
       runDraft(new TextDecoder().decode(buf));
     });
     readBtn.addEventListener("click", () => runDraft(paste.value));
@@ -230,6 +356,7 @@ export function renderSettings(root) {
   fileIn.hidden = true;
   fileIn.addEventListener("change", () => {
     const f = fileIn.files?.[0];
+    fileIn.value = "";
     if (!f) return;
     const img = new Image();
     img.onload = () => {
@@ -272,6 +399,21 @@ export function renderSettings(root) {
   }
   langCard.append(langRow);
   root.append(langCard);
+  // Plans entry (payments chapter): families only. A carer account
+  // never sees a purchase surface (carers have no tiers, ever), so
+  // the card stands unless the viewer is known to be a carer. The
+  // button opens the plans sheet through its seam.
+  const sideNow = ((window.CARESITS_TRUST || {}).me || {}).side || (window.CARESITS_ME || {}).side || "";
+  if (sideNow !== "carer") {
+    const plansCard = el("div", "findCard");
+    plansCard.append(el("h3", "findName", tr("plans.title")));
+    const plansBtn = el("button", "mainBtn", tr("plans.title"));
+    plansBtn.type = "button";
+    plansBtn.id = "plansBtn";
+    plansBtn.addEventListener("click", () => { if (typeof window.CARESITS_OPEN_PLANS === "function") window.CARESITS_OPEN_PLANS(); });
+    plansCard.append(plansBtn);
+    root.append(plansCard);
+  }
   // Push switches stand only when the native seam is live on
   // this device (Security fence: no controls that cannot
   // work). The switches write this device's own doc, which
@@ -333,6 +475,13 @@ function bootTrust() {
   const saved = (() => { try { return JSON.parse(localStorage.getItem(BG_KEY)) || { choice: "brand" }; } catch { return { choice: "brand" }; } })();
   applyBackground(saved.choice, saved.choice === "upload" ? localStorage.getItem(BG_KEY + "-img") : null);
 }
+
+// The live bridge re-publishes the trust seam when the signed
+// in member's documents land (F15); this seam lets it refresh
+// every trust surface in place, the way the bin refreshes on
+// open. Demo and test seams keep working exactly as before:
+// they set CARESITS_TRUST and this renders from it.
+window.CARESITS_TRUST_RENDER = bootTrust;
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootTrust);
 else bootTrust();
