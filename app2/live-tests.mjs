@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { routeWrite, trustSeamFrom, publishTrust, refreshTrustName, writeDataFor, makeWriter, phaseCNameTargets, phaseCSeam, fetchPhaseC, activityStampPath, weekSeamFrom, threadSeamFrom } from "./live.js";
-import { frameUser, FRAME_WAIT } from "./account-save.js";
+import { frameUser, FRAME_WAIT, planSave, publishSavedProfile } from "./account-save.js";
 let n = 0; const t = (name, fn) => { fn(); n += 1; console.log("ok -", name); };
 const ta = async (name, fn) => { await fn(); n += 1; console.log("ok -", name); };
 t("router: signed out refuses everything", () => { assert.equal(routeWrite("job", { data: {} }, "").ok, false); });
@@ -382,6 +382,50 @@ await ta("frame user (b104 ROOT A): a wedged restore is bounded, never a hang", 
     const auth = { currentUser: null, authStateReady: () => new Promise(() => {}) };
     assert.equal(await frameUser(auth), null);
   } finally { FRAME_WAIT.ms = keep; }
+});
+t("plan save (b107 FAIL 1): a raw list in the musts deep normalises to a shaped answer, never an undefined field", () => {
+  const bundle = { side: "family", country: "Australia", answers: {}, strengths: {}, card: { side: "family", postcode: "2000", looking: { musts: { deep: { F8: ["peanuts"] } }, prefs: { deep: { F20: { v: "Calm", s: "pref", feed: "approach" } } } } } };
+  const plan = planSave(bundle, { uid: "u1", nowIso: "2026-10-20T00:00:00.000Z" });
+  const f8 = plan.answers.find((a) => a.path.endsWith("/F8"));
+  assert.deepEqual(f8.data, { bucket: "musts", v: ["peanuts"], s: "must" });
+  const f20 = plan.answers.find((a) => a.path.endsWith("/F20"));
+  assert.deepEqual(f20.data, { bucket: "prefs", v: "Calm", s: "pref", feed: "approach" });
+  assert.ok(plan.answers.every((a) => a.data.v !== undefined), "no answer doc may carry an undefined field");
+});
+t("plan save (b107 FAIL 1): an unrecoverable deep entry is skipped and the rest of the save survives", () => {
+  const bundle = { side: "family", country: "Australia", answers: {}, strengths: {}, card: { side: "family", postcode: "2000", looking: { musts: {}, prefs: { deep: { F9: { v: undefined, s: "pref" }, F10: { v: "Yes", s: "pref" } } } } } };
+  const plan = planSave(bundle, { uid: "u1", nowIso: "2026-10-20T00:00:00.000Z" });
+  assert.deepEqual(plan.answers.map((a) => a.path), ["profiles/u1/answers/F10"]);
+});
+t("plan save (b107 FAIL 2): the save stamps the side onto the user doc; a carer's questionnaire name rides", () => {
+  const fam = planSave({ side: "family", answers: {}, card: {} }, { uid: "u1", nowIso: "2026-10-20T00:00:00.000Z" });
+  assert.deepEqual(fam.profileSide, { path: "users/u1", data: { side: "family" } });
+  const car = planSave({ side: "carer", answers: {}, card: { displayName: "Ana" } }, { uid: "u2", nowIso: "2026-10-20T00:00:00.000Z" });
+  assert.deepEqual(car.profileSide, { path: "users/u2", data: { side: "carer", displayName: "Ana" } });
+});
+t("language ride (b107 note): the pick writes the account's app doc beside the background", () => {
+  const w = routeWrite("language", { code: "es" }, "u1");
+  assert.equal(w.ok, true); assert.equal(w.op, "merge");
+  assert.equal(w.path, "users/u1/meta/app"); assert.deepEqual(w.data, { language: "es" });
+});
+t("profile completeness (b107 Legs 9+10, same-session half): a landed save raises the flag in its own session", () => {
+  globalThis.window = { CARESITS_ME: { uid: "u1", side: "", name: "" }, CARESITS_TRUST: { docs: [], reviews: [], me: {} } };
+  const bundle = { side: "family", answers: { country: "Australia" }, card: {} };
+  const plan = planSave(bundle, { uid: "u1", nowIso: "2026-10-20T00:00:00.000Z" });
+  publishSavedProfile(bundle, plan, "u1");
+  assert.equal(globalThis.window.CARESITS_PROFILE_COMPLETE, true);
+  assert.equal(globalThis.window.CARESITS_ME.side, "family");
+  delete globalThis.window;
+});
+t("profile completeness (b107 Legs 9+10): judged from the seam's saved facts at publish", () => {
+  globalThis.window = {};
+  publishTrust({ side: "family", displayName: "Fay" }, { side: "family" }, { answers: { country: "Australia" } });
+  assert.equal(globalThis.window.CARESITS_PROFILE_COMPLETE, true);
+  publishTrust({ side: "family", displayName: "Fay" }, { side: "family" }, { answers: {} });
+  assert.equal(globalThis.window.CARESITS_PROFILE_COMPLETE, false);
+  publishTrust({}, {}, {});
+  assert.equal(globalThis.window.CARESITS_PROFILE_COMPLETE, false);
+  delete globalThis.window;
 });
 t("activity stamp: a carer stamps at the root seat", () => { assert.equal(activityStampPath("u1", "carer"), "_activity/u1"); });
 t("activity stamp: families never stamp, and no uid no stamp", () => { assert.equal(activityStampPath("u1", "family"), null); assert.equal(activityStampPath("", "carer"), null); assert.equal(activityStampPath(null, "carer"), null); });
