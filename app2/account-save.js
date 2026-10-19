@@ -179,8 +179,31 @@ export async function saveBundle(bundle, firebaseConfig) {
   const auth = authMod.getAuth(app);
   const user = await frameUser(auth);
   if (!user || user.isAnonymous) return { saved: "local", reason: "signed-out" };
+  // The restored session's user can stand before its token
+  // is effective for Firestore (QA b108 naming probe: past
+  // frameUser, an unguarded step refused permission-denied
+  // in the young realm while the same call committed minutes
+  // later). Await a live token before the first Firestore
+  // step, so the save's requests carry credentials the
+  // server accepts. A failed mint judges on the save's own
+  // outcome; the envelope drains regardless.
+  try { await withTimeout(user.getIdToken(true), 10000, "token mint"); } catch { /* the save speaks for itself */ }
   const db = fsMod.getFirestore(app);
-  const profSnap = await fsMod.getDoc(fsMod.doc(db, "users", user.uid));
+  let profSnap = await fsMod.getDoc(fsMod.doc(db, "users", user.uid));
+  if (!profSnap.exists()) {
+    // The activation pairing reads this doc's PRE-state:
+    // it must exist before the batch or the counter member
+    // refuses and the batch dies whole (Test naming probe,
+    // b108: commit permission-denied on accounts the browser
+    // door flow left doc-less — the door's bounded ensure
+    // can miss its birth in a young realm). The save births
+    // the doc itself, in the door's own shape, ahead of the
+    // batch — with the token awaited above, the birth lands.
+    try {
+      await fsMod.setDoc(fsMod.doc(db, "users", user.uid), { createdAt: fsMod.serverTimestamp(), side: "", displayName: "" }, { merge: true });
+      profSnap = await fsMod.getDoc(fsMod.doc(db, "users", user.uid));
+    } catch { /* the batch speaks for itself */ }
+  }
   const alreadyActivated = profSnap.exists() && "activatedAt" in profSnap.data();
   const cardSnap = await fsMod.getDoc(fsMod.doc(db, "profiles", user.uid)).catch(() => null);
   const keptPhoto = cardSnap && cardSnap.exists() ? (cardSnap.data().photoUrl || "") : "";
