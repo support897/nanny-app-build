@@ -66,6 +66,36 @@ export function openPlans(reason) {
   card.append(planBtn(tr("popup.joinPlus"), "family-plus", wrap, card, status));
   card.append(el("p", null, popupPriceLine("plans.pass", "pass")));
   card.append(planBtn(tr("plans.joinPass"), "search-pass", wrap, card, status));
+  // The renewal disclosure + the legal links stand ON
+  // the paywall (Store Review's G7 item, HQ's fix wave
+  // on the fleet's proven pattern): the whole renewal
+  // truth for both subscriptions in plain words at
+  // small print volume, built from standing parts only.
+  // The prices inside it render through the SAME helper
+  // as the plan lines above (popupPriceLine), so the
+  // disclosure and the buttons can never drift apart;
+  // the Search Pass line inside the block is the sheet's
+  // own pass line, reused. The block renders in every
+  // state of the sheet, entitled included.
+  const legal = el("div", "plansLegal");
+  legal.append(
+    el("p", null, popupPriceLine("plans.renewFinding", "finding")),
+    el("p", null, popupPriceLine("plans.renewPlus", "plus")),
+    el("p", null, tr("plans.renew2")),
+    el("p", null, popupPriceLine("plans.pass", "pass")),
+  );
+  card.append(legal);
+  const links = el("div", "plansLinks");
+  const priv = el("a", null, tr("plans.privacy"));
+  priv.href = "https://support897.github.io/caresits/privacy.html";
+  priv.target = "_blank";
+  priv.rel = "noopener";
+  const terms = el("a", null, tr("plans.terms"));
+  terms.href = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/";
+  terms.target = "_blank";
+  terms.rel = "noopener";
+  links.append(priv, terms);
+  card.append(links);
   card.append(status);
   if (purchaseAvailable()) {
     const restore = el("button", "mainBtn popBtn", tr("plans.restore"));
