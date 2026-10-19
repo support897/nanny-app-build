@@ -15,6 +15,7 @@ ck("every home + matches + board key has a Spanish twin", () => { for (const k o
 ck("every family key has a Spanish twin", () => { for (const k of Object.keys(STRINGS.en)) if (k.startsWith("family.")) assert.ok(STRINGS.es[k], k); });
 ck("every week key has a Spanish twin", () => { for (const k of Object.keys(STRINGS.en)) if (k.startsWith("week.")) assert.ok(STRINGS.es[k], k); });
 ck("every popup + thread key has a Spanish twin", () => { for (const k of Object.keys(STRINGS.en)) if (k.startsWith("popup.") || k.startsWith("thread.")) assert.ok(STRINGS.es[k], k); });
+ck("every level key has a Spanish twin", () => { for (const k of Object.keys(STRINGS.en)) if (k.startsWith("level.")) assert.ok(STRINGS.es[k], k); });
 ck("every safety key has a Spanish twin", () => { for (const k of Object.keys(STRINGS.en)) if (k.startsWith("safety.")) assert.ok(STRINGS.es[k], k); });
 ck("every calendar key has a Spanish twin", () => { for (const k of Object.keys(STRINGS.en)) if (k.startsWith("cal.")) assert.ok(STRINGS.es[k], k); });
 ck("every account page key has a Spanish twin, and the legal fence covers the account promises", () => {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { routeWrite, trustSeamFrom, publishTrust, writeDataFor, makeWriter, phaseCNameTargets, phaseCSeam, fetchPhaseC } from "./live.js";
+import { routeWrite, trustSeamFrom, publishTrust, refreshTrustName, writeDataFor, makeWriter, phaseCNameTargets, phaseCSeam, fetchPhaseC } from "./live.js";
 let n = 0; const t = (name, fn) => { fn(); n += 1; console.log("ok -", name); };
 const ta = async (name, fn) => { await fn(); n += 1; console.log("ok -", name); };
 t("router: signed out refuses everything", () => { assert.equal(routeWrite("job", { data: {} }, "").ok, false); });
@@ -31,14 +31,14 @@ t("trust seam (F15): a carer's me comes from her card, questionnaire name first"
     { side: "carer", displayName: "Ana Carer", postcode: "2021", photoUrl: "https://x/p.jpg", card: { gallery: ["https://x/1.jpg", "https://x/2.jpg"] } },
     { country: "Australia" }
   );
-  assert.deepEqual(me, { name: "Ana Carer", side: "carer", postcode: "2021", photoUrl: "https://x/p.jpg", gallery: ["https://x/1.jpg", "https://x/2.jpg"], country: "Australia" });
+  assert.deepEqual(me, { name: "Ana Carer", side: "carer", postcode: "2021", photoUrl: "https://x/p.jpg", gallery: ["https://x/1.jpg", "https://x/2.jpg"], country: "Australia", level: "" });
 });
 t("trust seam (F15): a family's name of record is the user doc's", () => {
   const me = trustSeamFrom({ side: "family", displayName: "Fay" }, { side: "family", displayName: "Fay", postcode: "2000", photoUrl: "" }, {});
   assert.equal(me.name, "Fay"); assert.equal(me.side, "family"); assert.equal(me.postcode, "2000"); assert.equal(me.country, "");
 });
 t("trust seam (F15): empty documents give the empty default, never an invention", () => {
-  assert.deepEqual(trustSeamFrom(null, null, null), { name: "", side: "", postcode: "", photoUrl: "", gallery: [], country: "" });
+  assert.deepEqual(trustSeamFrom(null, null, null), { name: "", side: "", postcode: "", photoUrl: "", gallery: [], country: "", level: "" });
 });
 t("trust publish (F15): docs and reviews already on the seam survive, me is replaced, the render seam fires", () => {
   let rendered = 0;
@@ -63,6 +63,45 @@ t("trust publish (F14): the card's gallery rides onto the seam and the member re
   );
   assert.deepEqual(me.gallery, ["https://x/1.jpg", "https://x/2.jpg", "https://x/3.jpg", "https://x/4.jpg"]);
   assert.deepEqual(globalThis.window.CARESITS_ME.gallery, me.gallery);
+  delete globalThis.window;
+});
+// ---- Leg 11 + Leg 2: the seam carries the computed level, and
+// a name given in the tour re-publishes the seam in-session ----
+const { FAMILY_PAGES } = await import("./questions.js");
+const { EXPANSION } = await import("./questions2.js");
+const valFor = (f) => {
+  if (f.type === "chips") return [(f.options || []).find((o) => o !== "") ?? "x"];
+  if (f.type === "select") return (f.options || []).find((o) => o !== "") ?? "x";
+  if (f.type === "yesno") return true;
+  if (f.type === "number") return 1;
+  if (f.type === "grid") return { Mon: ["Morning"] };
+  if (f.type === "band") return [0, 5];
+  if (f.type === "experience") return { "0 to 1 years": "1" };
+  if (f.type === "expchecks") return { checks: "Register verified", years: {} };
+  if (f.type === "homefacts") return { petsOk: true };
+  return "x";
+};
+const quickAnswers = { country: "Australia" };
+for (const pg of FAMILY_PAGES) for (const f of pg.fields) if (f.required) quickAnswers[f.id] = valFor(f);
+for (const pg of EXPANSION.family) for (const f of pg.fields) if (f.level === "quick") quickAnswers[f.id] = valFor(f);
+t("trust seam (Leg 11): the member's level is computed from their saved answers", () => {
+  const me = trustSeamFrom({ side: "family", displayName: "Fay" }, { side: "family" }, { side: "family", answers: quickAnswers });
+  assert.equal(me.level, "quick");
+});
+t("trust seam (Leg 11): no answers, no level claimed", () => {
+  const me = trustSeamFrom({ side: "family", displayName: "Fay" }, { side: "family" }, { side: "family" });
+  assert.equal(me.level, "");
+});
+t("name refresh (Leg 2): a tour name re-publishes the seam and the member record in-session", () => {
+  let rendered = 0;
+  globalThis.window = { CARESITS_TRUST: { docs: [], reviews: [] }, CARESITS_ME: { uid: "u1", side: "family", name: "" }, CARESITS_TRUST_RENDER: () => { rendered += 1; } };
+  publishTrust({ side: "family", displayName: "" }, { side: "family" }, { side: "family", answers: quickAnswers });
+  assert.equal(globalThis.window.CARESITS_TRUST.me.name, "");
+  refreshTrustName("QaTourName");
+  assert.equal(globalThis.window.CARESITS_TRUST.me.name, "QaTourName");
+  assert.equal(globalThis.window.CARESITS_ME.name, "QaTourName");
+  assert.equal(globalThis.window.CARESITS_TRUST.me.level, "quick");
+  assert.equal(rendered, 2);
   delete globalThis.window;
 });
 // ---- F18: reminder + emergency are singleton documents ----
@@ -212,21 +251,27 @@ await ta("F20: the writer lands a shopping save carrying a real Timestamp for up
   assert.deepEqual(doc.items, []); assert.equal(doc.updatedBy, "u1");
 });
 
-// ---- F21: the safety counter lands as a merge set ----
+// ---- F22: the safety counters land as merge sets, one
+// field per document ----
 // (Security ruling 46d6b466: an update can never create the
 // counter doc, so the first filing would always fail; the
 // merge set is judged by the create arm first, then the
-// update arm.)
-await ta("F21: the report pair's counter lands as a merge set carrying exactly the filed and open increments", async () => {
+// update arm. Ruling 2c267c79: filed and open each live in
+// their own document, one transform per write.)
+await ta("F22: the report pair's counters land as merge sets, one per split doc, each carrying exactly its own increment", async () => {
   const { fs, store, batchLog } = stubSdk();
   const write = makeWriter(fs, null, "u1");
   const res = await write("report", { data: { reporterUid: "u1", reportedUid: "u2", surface: "profile", category: "spam_scam", state: "open" }, counter: { delta: { filed: 1, open: 1 } } });
   assert.equal(res.ok, true);
-  const counter = batchLog.find((b) => b.path === "_owner/aggregates/safety/main");
-  assert.equal(counter.op, "set");
-  assert.deepEqual(counter.opts, { merge: true });
-  assert.deepEqual(Object.keys(counter.data).sort(), ["filed", "open"]);
-  assert.deepEqual(counter.data, { filed: { __increment: 1 }, open: { __increment: 1 } });
+  const filedDoc = batchLog.find((b) => b.path === "_owner/aggregates/safetyFiled/main");
+  assert.equal(filedDoc.op, "set");
+  assert.deepEqual(filedDoc.opts, { merge: true });
+  assert.deepEqual(filedDoc.data, { filed: { __increment: 1 } });
+  const openDoc = batchLog.find((b) => b.path === "_owner/aggregates/safetyOpen/main");
+  assert.equal(openDoc.op, "set");
+  assert.deepEqual(openDoc.opts, { merge: true });
+  assert.deepEqual(openDoc.data, { open: { __increment: 1 } });
+  assert.ok(!batchLog.some((b) => b.path === "_owner/aggregates/safety/main"), "the retired shared safety counter is never written");
   const filed = [...store.entries()].find(([p]) => p.startsWith("safetyReports/"));
   assert.equal(filed[1].category, "spam_scam");
   assert.equal(filed[1].state, "open");

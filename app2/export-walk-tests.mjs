@@ -24,6 +24,9 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 }, acce
 const errs = [];
 page.on("pageerror", (e) => errs.push(String(e)));
 await page.addInitScript(() => {
+  // The shell's signed out gate (Leg 19 FAIL 1 ruling): this
+  // walk enters as an explorer; its signed in seams ride below.
+  try { sessionStorage.setItem("caresits-demo", "1"); } catch { /* storage off */ }
   window.CARESITS_ME = { uid: "f1", side: "family", name: "Sam" };
   window.CARESITS_TRUST = { docs: [], reviews: [], me: { name: "Sam", side: "family", postcode: "2021" } };
   window.CARESITS_FAMILY = {
@@ -70,6 +73,9 @@ async function exportFrom(p) {
 const newPage = async (seed) => {
   const p = await browser.newPage({ viewport: { width: 390, height: 844 }, acceptDownloads: true });
   p.on("pageerror", (e) => errs.push(String(e)));
+  // The shell's signed out gate (Leg 19 FAIL 1 ruling): every
+  // walk page enters as an explorer.
+  await p.addInitScript(() => { try { sessionStorage.setItem("caresits-demo", "1"); } catch { /* storage off */ } });
   await p.addInitScript(seed);
   await p.goto("http://localhost:8936/index.html", { waitUntil: "networkidle" });
   return p;
