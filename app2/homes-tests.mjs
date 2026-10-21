@@ -12,6 +12,8 @@ const { CODE_ALPHABET, isCode, makeCode, planInviteCreate, planInviteAccept, inv
 const { cleanItems, planShoppingSave, addItem, toggleItem } = await import("./shopping.js");
 const { repairChild } = await import("./family.js");
 const { pairIdFor } = await import("./pair-actions.js");
+const { areaCoordsFor, pinLayout } = await import("./browse.js");
+const { planSave } = await import("./account-save.js");
 
 let n = 0; const t = (name, fn) => { fn(); n += 1; console.log("ok -", name); };
 
@@ -235,6 +237,33 @@ t("source: the copy catch speaks homes.copyFail, and the share catch stays silen
   assert.ok(copyLine && copyLine.includes('catch { state.linkMsg = tr("homes.copyFail"); renderHome(); }'), "the copy catch speaks");
   const shareLine = src.split("\n").find((l) => l.includes("navigator.share"));
   assert.ok(shareLine && shareLine.includes("catch { /* share closed */ }"), "the share catch stays silent");
+});
+
+// Polar C1 (build 114): the map stood empty for every real
+// member — no production save ever wrote card coordinates,
+// so pinLayout filtered the whole pool out. The area table
+// + the save write + the read derivation are the cure.
+t("area: a known postcode resolves to its area centroid", () => {
+  assert.deepEqual(areaCoordsFor("4217"), { latE2: -2802, lngE2: 15343 });
+  assert.deepEqual(areaCoordsFor("2000"), { latE2: -3387, lngE2: 15121 });
+});
+t("area: an unlisted prefix falls back to its state area, and an unplaceable postcode resolves null", () => {
+  assert.deepEqual(areaCoordsFor("2350"), { latE2: -3289, lngE2: 15178 });
+  assert.equal(areaCoordsFor("123"), null);
+  assert.equal(areaCoordsFor(""), null);
+  assert.equal(areaCoordsFor(null), null);
+});
+t("area: pins stand over postcode-derived cards, and coord-less cards honestly draw none", () => {
+  const mk = (pc) => ({ doc: { uid: pc, displayName: "X", card: { postcode: pc, ...areaCoordsFor(pc) } } });
+  assert.ok(pinLayout(null, [mk("4217"), mk("4220")]).length >= 1);
+  assert.equal(pinLayout(null, [{ doc: { uid: "z", card: {} } }]).length, 0);
+});
+t("area: the save writes the area coordinates onto the card from its postcode", () => {
+  const plan = planSave({ side: "carer", answers: {}, card: { postcode: "4217" }, looking: { musts: {}, prefs: {} } }, { uid: "u1", displayName: "Ana", nowIso: "2026-10-21T00:00:00.000Z" });
+  assert.equal(plan.card.data.card.latE2, -2802);
+  assert.equal(plan.card.data.card.lngE2, 15343);
+  const bare = planSave({ side: "carer", answers: {}, card: {}, looking: { musts: {}, prefs: {} } }, { uid: "u1", displayName: "Ana", nowIso: "2026-10-21T00:00:00.000Z" });
+  assert.ok(!("latE2" in bare.card.data.card));
 });
 
 console.log(`\nALL ${n} homes checks passed`);
