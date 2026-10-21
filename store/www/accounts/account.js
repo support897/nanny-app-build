@@ -168,6 +168,36 @@ export function withTimeout(promise, ms, label) {
 }
 export const DOOR_TIMEOUTS = { native: 20000, ensure: 10000 };
 
+// The JS Auth's persistence decides whether sign in results
+// and the auth state listener ever settle inside the packaged
+// webview (the door bisect of record, 21 Oct 2026: her Google
+// sign in completed at Firebase, lastLogin stamped at the
+// film's minute, and the app never walked her in and never
+// spoke). Plain getAuth names no persistence, so the default
+// chain settles through IndexedDB, the layer that can stall
+// inside WKWebView under the packaged app's scheme
+// (firebase-js-sdk #5552). On native the Auth is created the
+// way the fleet's device completing modular control (Ruefly)
+// creates it, like for like: initializeAuth naming
+// browserLocalPersistence, the reliable settler in that
+// webview. The web keeps getAuth.
+export function authInitShape(native) { return native ? "browserLocal" : "default"; }
+function isNativePlatform() {
+  try { const cap = window.Capacitor; return !!(cap && typeof cap.isNativePlatform === "function" && cap.isNativePlatform()); }
+  catch { return false; }
+}
+function initAuthForPlatform(authMod, app, native) {
+  if (authInitShape(native) === "browserLocal" && typeof authMod.initializeAuth === "function") {
+    try {
+      const auth = authMod.initializeAuth(app, { persistence: authMod.browserLocalPersistence });
+      console.info("[door] auth init: native named persistence (browserLocal)");
+      return auth;
+    } catch { /* an instance already stands: fall through */ }
+  }
+  console.info("[door] auth init: web default");
+  return authMod.getAuth(app);
+}
+
 export async function initAccounts(config, onUser) {
   if (!config || !config.apiKey || !config.projectId || !config.appId) {
     return { on: false };
@@ -176,7 +206,7 @@ export async function initAccounts(config, onUser) {
   const authMod = await import(`${SDK}/firebase-auth.js`);
   const fsMod = await import(`${SDK}/firebase-firestore.js`);
   const app = initializeApp(config);
-  _auth = authMod.getAuth(app);
+  _auth = initAuthForPlatform(authMod, app, isNativePlatform());
   _db = fsMod.getFirestore(app);
   authMod.onAuthStateChanged(_auth, async (u) => {
     _user = u;
@@ -278,8 +308,15 @@ export async function signInGoogle() {
     const result = await withTimeout(plugin.signInWithGoogle(), DOOR_TIMEOUTS.native, "native sign in");
     const credential = result && result.credential;
     if (!credential || !credential.idToken) throw new Error("native sign in returned no credential");
-    return m.signInWithCredential(_auth, m.GoogleAuthProvider.credential(credential.idToken));
+    return withTimeout(m.signInWithCredential(_auth, m.GoogleAuthProvider.credential(credential.idToken)), DOOR_TIMEOUTS.native, "credential exchange");
   }
+  // On native, a missing plugin fails LOUD, never falls
+  // through to the web popup (the fleet door chapter,
+  // 21 Oct 2026): the popup's return cannot complete inside
+  // the webview, and its silence is indistinguishable from
+  // a door that never spoke. The popup stands only where it
+  // belongs: the open web.
+  if (isNativePlatform()) throw new Error("native sign in unavailable in this build");
   return m.signInWithPopup(_auth, new m.GoogleAuthProvider());
 }
 
@@ -295,8 +332,9 @@ export async function signInApple() {
     // the id token: it rides verbatim as rawNonce below,
     // never hashed a second time (the plugin presented the
     // hashed nonce to Apple when it opened the sheet).
-    return m.signInWithCredential(_auth, provider.credential({ idToken: credential.idToken, rawNonce: credential.nonce }));
+    return withTimeout(m.signInWithCredential(_auth, provider.credential({ idToken: credential.idToken, rawNonce: credential.nonce })), DOOR_TIMEOUTS.native, "credential exchange");
   }
+  if (isNativePlatform()) throw new Error("native sign in unavailable in this build");
   return m.signInWithPopup(_auth, provider);
 }
 

@@ -12,7 +12,7 @@
   --line: #D8E4DC;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--ground); color: var(--ink); font-family: "Atkinson Hyperlegible", system-ui, sans-serif; font-size: 17px; line-height: 1.5; }
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: "Atkinson Hyperlegible", system-ui, sans-serif; font-size: 17px; line-height: 1.5; touch-action: manipulation; }
 .page { max-width: 640px; margin: 0 auto; padding: 20px 14px 48px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 24px 20px; margin-top: 18px; }
 h1, h2 { font-family: "Newsreader", Georgia, serif; font-weight: 600; line-height: 1.15; margin: 0 0 10px; }
@@ -31,7 +31,7 @@ h1 { font-size: 34px; } h2 { font-size: 26px; }
 .sideBtn, .mainBtn { background: var(--ink); color: #fff; border: none; border-radius: 999px; padding: 14px 22px; font: inherit; font-weight: 700; cursor: pointer; }
 .sideBtn.alt { background: var(--blush); color: var(--ink); }
 .ghostBtn { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 12px 20px; font: inherit; color: var(--ink); cursor: pointer; }
-.jHead { display: flex; gap: 14px; align-items: center; }
+.jHead { display: flex; gap: 14px; align-items: center; padding-top: env(safe-area-inset-top, 0px); }
 .bar { height: 10px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 14px 0 6px; }
 .barFill { height: 100%; background: var(--teal); width: 0; transition: width .3s ease; }
 .notice { color: #A33B2E; min-height: 24px; font-weight: 700; }
