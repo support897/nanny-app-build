@@ -288,12 +288,20 @@ appId: com.ilse.caresits
     direction: DOWN
 - swipe:
     direction: DOWN
+# Drive 11 correction: the v11 point (50%, 71%) was measured off
+# a scaled image and lands ABOVE the box. From drive 9's own
+# hierarchy bounds (page-top state): the label spans y 664-689,
+# the ages label starts at 769 — the input between them centres
+# at ~(50%, 83%).
 - tapOn:
-    point: "50%, 71%"
+    point: "50%, 83%"
 - waitForAnimationToEnd
 - inputText: "4217"
 - tapOn:
     point: "90%, 58%"  # this door's measured accessory tick (v5)
+# LANDING PROOF in pixels: the field stands in view in this
+# scroll state; the box must show the typed postcode.
+- takeScreenshot: 08b-p02-postcode
 - scrollUntilVisible:
     element:
       text: "0-1"
@@ -339,6 +347,14 @@ appId: com.ilse.caresits
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
+# DIAGNOSTIC (permanent): if the advance was refused, the app's
+# own notice at the page top NAMES the missing field — read it
+# here before the judge runs.
+- swipe:
+    direction: DOWN
+- swipe:
+    direction: DOWN
+- takeScreenshot: 08c-p02-notice
 # ---------- page 3 of 20: Your week ----------------------------------
 - extendedWaitUntil:
     visible:
