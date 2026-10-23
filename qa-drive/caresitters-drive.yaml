@@ -1,4 +1,14 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v8 (2026-10-24) — v7's TOUR CURE LANDED WHOLE on
+# drive 7 (run 39964787171): the tour walked out clean
+# (05-inside), the menu opened on its tree name, Finding care
+# led to the journey welcome (06 stands: the bunny, "Let us
+# find your perfect match", the depth cards stacking down).
+# Death at step-033, the "Full Match" tap: the card stands
+# BELOW THE FOLD (the failure hierarchy holds Explore's and
+# Quick Connect's cards only) and the cards' nodes are
+# COMPOSED (title + subtitle). v8 scrolls twice, then taps
+# the node's whole text from the shipped bytes.
 # Version: v7 (2026-10-23) — drive 6 (run 39959129566) died at
 # step-018: the tour stood at stop 2 ("This is your menu") while
 # the flow waited for stop 1's greeting. The Join tap's retry
@@ -196,8 +206,21 @@ appId: com.ilse.caresits
 - takeScreenshot: 06-journey-welcome
 # Full Match is the target: with target=full the level stop panel
 # never interrupts the walk (journey.js's stop branch excludes it).
+# Drive 7 (run 39964787171) died at this tap: the card stands
+# BELOW THE FOLD on the welcome page (its hierarchy held
+# Explore's and Quick Connect's cards only), and the cards'
+# tree nodes are COMPOSED — title + subtitle, exactly as
+# Explore's node reads in that hierarchy ("Explore Exploring:
+# answer the first questions to connect"). Two UP swipes are
+# the transport; the tap carries the node's whole text, read
+# from the shipped bytes.
+- swipe:
+    direction: UP
+- swipe:
+    direction: UP
+- waitForAnimationToEnd
 - tapOn:
-    text: "Full Match"
+    text: "Full Match Full Match: every match question answered; your pairs can reach Perfect Pair"
     waitUntilVisible: true
 - tapOn:
     text: "I am looking for care"
