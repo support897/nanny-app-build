@@ -1,0 +1,679 @@
+# Caresitters 117 simulator drive — QA Tester chair.
+# The FINISHING ORDER spine for candidate 117's simulator copy
+# (bundle com.ilse.caresits, version 1.0, build 117; the copy's
+# byte-leg pins stand in store-uploads/scratch/caresitters-sim/
+# PINS.md). Spine: sign up -> the FULL family questionnaire journey
+# driven to its Finish tap (the commit fires there — journey.js
+# calls CARESITS_SAVE at the finish, F-CS-115-1) -> the Done screen
+# + a settle beat on Home -> sign out -> sign in -> the committed
+# questionnaire stands -> a SECOND account whose space holds none
+# of it.
+# Structural template: pace-drive.yaml v2 + mealprep-drive.yaml —
+# every tap waits until its target is visible; sheets are waited
+# for, dismissed non-optionally, and proven gone before anything
+# behind them is touched.
+# SETTLE DISCIPLINE (the b117 leg-2 setup artefact): finish()
+# writes the done envelope and shows the Done screen BEFORE its
+# save settles; a drive that navigates away inside that window
+# kills the commit. This flow therefore stays on the Done screen
+# until the Home card itself reads "Your questions are answered"
+# — the seam-driven card is the settle proof, never a timer alone.
+# TEST_EMAIL / TEST_PASSWORD / TEST_EMAIL2 / TEST_PASSWORD2 arrive
+# as workflow env at dispatch (passwords from QA's mode-600 cast,
+# sealed the Pace way); the values never appear in this file or
+# the repo. NOTE: Maestro's commands.json records env values in
+# plaintext — the workflow's collect step must NOT upload
+# commands.json (the Pace v1 lesson; see pace-drive.yaml).
+# Selector provenance for every string below:
+# caresitters-drive-NOTES.md.
+appId: com.ilse.caresits
+---
+# ---------- cold open: the door -------------------------------------
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible:
+      text: "Find care. Share the day."
+    timeout: 90000
+- takeScreenshot: 00-door
+# ---------- stage (i): sign up, account 1 (email step, then ---------
+# ---------- password step; the one button does both) ----------------
+- tapOn:
+    text: "you@example.com"
+    waitUntilVisible: true
+- inputText: "${TEST_EMAIL}"
+- hideKeyboard
+- takeScreenshot: 01-email-step
+- tapOn:
+    text: "→"
+    waitUntilVisible: true
+- tapOn:
+    text: "Your own password"
+    waitUntilVisible: true
+- inputText: "${TEST_PASSWORD}"
+- hideKeyboard
+- takeScreenshot: 02-password-step
+- tapOn:
+    text: "Join Caresitters"
+    waitUntilVisible: true
+# The creation announcement ("That email is new here, so we made
+# your account. Welcome in.") is transient in #doorMsg; this frame
+# is its evidence window, not an assertion (see NOTES).
+- takeScreenshot: 03-join-tapped
+# ---------- first entry: the tour, name step first ------------------
+# Five stops; the name is saved by the first Next tap. The sentinel
+# name for this spine is typed here.
+- extendedWaitUntil:
+    visible:
+      text: "Hello, I am the Caresitters bunny"
+    timeout: 90000
+- tapOn:
+    text: "Your name"
+    waitUntilVisible: true
+- inputText: "Sim Driver CS"
+- hideKeyboard
+- takeScreenshot: 04-tour-name
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "You are all set"
+    timeout: 30000
+- tapOn:
+    text: "Done"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    notVisible:
+      text: "You are all set"
+    timeout: 30000
+- takeScreenshot: 05-inside
+# ---------- stage (ii): the journey — open it ------------------------
+- tapOn:
+    text: "Menu"
+    waitUntilVisible: true
+- tapOn:
+    text: "Finding care"
+    waitUntilVisible: true
+- tapOn:
+    text: "Questionnaire"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Let us find your perfect match"
+    timeout: 90000
+- takeScreenshot: 06-journey-welcome
+# Full Match is the target: with target=full the level stop panel
+# never interrupts the walk (journey.js's stop branch excludes it).
+- tapOn:
+    text: "Full Match"
+    waitUntilVisible: true
+- tapOn:
+    text: "I am looking for care"
+    waitUntilVisible: true
+# ---------- page 1 of 20: Your country -------------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Your country"
+    timeout: 60000
+- tapOn:
+    text: "Australia"
+    waitUntilVisible: true
+- takeScreenshot: 07-p01-country
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 2 of 20: Your family --------------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Your family"
+    timeout: 60000
+- tapOn:
+    text: "Babysitter"
+    waitUntilVisible: true
+- tapOn:
+    text: "Your postcode"
+    waitUntilVisible: true
+- inputText: "4217"
+- hideKeyboard
+- tapOn:
+    text: "0-1"
+    waitUntilVisible: true
+- tapOn:
+    text: "English"
+    waitUntilVisible: true
+# Two yes/no fields on this page, in field order: pets, then
+# smoker household. Maestro index picks among the "Yes" matches.
+- tapOn:
+    text: "Yes"
+    index: 0
+    waitUntilVisible: true
+- tapOn:
+    text: "Yes"
+    index: 1
+    waitUntilVisible: true
+- takeScreenshot: 08-p02-family
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 3 of 20: Your week ----------------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Your week"
+    timeout: 60000
+# The grid cells carry no visible text (empty buttons); this tap
+# addresses the first cell by its aria-label, "Mon morning" — see
+# NOTES, UNSOURCED + judgement call 1.
+- tapOn:
+    text: "Mon morning"
+    waitUntilVisible: true
+- tapOn:
+    text: "As soon as possible"
+    waitUntilVisible: true
+- tapOn:
+    text: "18"
+    waitUntilVisible: true
+- takeScreenshot: 09-p03-week
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 4 of 20: Activities with kids ------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Activities with kids"
+    timeout: 60000
+- tapOn:
+    text: "Arts and crafts"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 5 of 20: Personality ---------------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Personality"
+    timeout: 60000
+- tapOn:
+    text: "Warm"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 6 of 20: The carer you are looking for ---------------
+- extendedWaitUntil:
+    visible:
+      text: "The carer you are looking for"
+    timeout: 60000
+- tapOn:
+    text: "Australian"
+    waitUntilVisible: true
+- tapOn:
+    text: "English"
+    waitUntilVisible: true
+# Three yes/no fields on this page, in field order: non smoker,
+# special needs, happy around pets. Indices among "Yes" matches.
+- tapOn:
+    text: "Yes"
+    index: 0
+    waitUntilVisible: true
+# The experience field's check chip (its year selects are native
+# <select> elements and stay untouched — see NOTES).
+- tapOn:
+    text: "Register verified"
+    waitUntilVisible: true
+- tapOn:
+    text: "Drives, own car"
+    waitUntilVisible: true
+- tapOn:
+    text: "School runs"
+    waitUntilVisible: true
+- tapOn:
+    text: "Steady rhythm"
+    waitUntilVisible: true
+- tapOn:
+    text: "Yes"
+    index: 1
+    waitUntilVisible: true
+- tapOn:
+    text: "Yes"
+    index: 2
+    waitUntilVisible: true
+- tapOn:
+    text: "2"
+    waitUntilVisible: true
+- takeScreenshot: 10-p06-looking-for
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 7 of 20: How children are guided ----------------------
+- extendedWaitUntil:
+    visible:
+      text: "How children are guided"
+    timeout: 60000
+- tapOn:
+    text: "Talk calmly and explain"
+    waitUntilVisible: true
+- tapOn:
+    text: "We use it"
+    waitUntilVisible: true
+- tapOn:
+    text: "Follow our plan closely"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 8 of 20: Screens, phones and photos -------------------
+- extendedWaitUntil:
+    visible:
+      text: "Screens, phones and photos of the children"
+    timeout: 60000
+- tapOn:
+    text: "None at all"
+    waitUntilVisible: true
+- tapOn:
+    text: "Only for calls to us"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 9 of 20: Food, allergies and treats --------------------
+- extendedWaitUntil:
+    visible:
+      text: "Food, allergies and treats"
+    timeout: 60000
+- tapOn:
+    text: "We plan them"
+    waitUntilVisible: true
+- tapOn:
+    text: "Peanuts"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 10 of 20: Sleep and settling ----------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Sleep and settling"
+    timeout: 60000
+- tapOn:
+    text: "Follow our sleep plan"
+    waitUntilVisible: true
+- tapOn:
+    text: "Yes, at set times"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 11 of 20: Talking, updates and small problems ----------
+- extendedWaitUntil:
+    visible:
+      text: "Talking, updates and sorting out small problems"
+    timeout: 60000
+- tapOn:
+    text: "Photos and notes in the app"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 12 of 20: How long the match should last ---------------
+- extendedWaitUntil:
+    visible:
+      text: "How long the match should last"
+    timeout: 60000
+- tapOn:
+    text: "A few weeks"
+    waitUntilVisible: true
+- tapOn:
+    text: "Yes"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 13 of 20: Safety skills in depth ------------------------
+# "Must have" appears twice on this page: the answer chip renders
+# before the field's strength group in the shipped markup, so
+# index 0 is the answer (see NOTES, judgement call 3).
+- extendedWaitUntil:
+    visible:
+      text: "Safety skills in depth"
+    timeout: 60000
+- tapOn:
+    text: "Must have"
+    index: 0
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 14 of 20: Living in, for live in roles ------------------
+- extendedWaitUntil:
+    visible:
+      text: "Living in, for live in roles"
+    timeout: 60000
+- tapOn:
+    text: "Yes, any time"
+    waitUntilVisible: true
+# Maestro text matching is substring-based: this bare "Yes" (the
+# guest-overnight field) may land on the first field's "Yes, any
+# time" again — an idempotent re-tap of an already-set select
+# chip, costing at most one OPTIONAL answer, never a blocked
+# page (see NOTES, judgement call 3).
+- tapOn:
+    text: "Yes"
+    waitUntilVisible: true
+- tapOn:
+    text: "No set time"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 15 of 20: The children, in more depth -------------------
+- extendedWaitUntil:
+    visible:
+      text: "The children, in more depth"
+    timeout: 60000
+- tapOn:
+    text: "One"
+    waitUntilVisible: true
+- tapOn:
+    text: "Speech"
+    waitUntilVisible: true
+- tapOn:
+    text: "Yes, most days"
+    waitUntilVisible: true
+- tapOn:
+    text: "Pool"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 16 of 20: References and proof of experience ------------
+# Same "Must have" shape as page 13: answer chip first, index 0.
+- extendedWaitUntil:
+    visible:
+      text: "References and proof of experience"
+    timeout: 60000
+- tapOn:
+    text: "Must have"
+    index: 0
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 17 of 20: Language in more depth --------------------------
+- extendedWaitUntil:
+    visible:
+      text: "Language in more depth"
+    timeout: 60000
+- tapOn:
+    text: "Very well"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 18 of 20: The shape of the work ----------------------------
+- extendedWaitUntil:
+    visible:
+      text: "The shape of the work"
+    timeout: 60000
+- tapOn:
+    text: "Yes"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 19 of 20: Energy, traits and the human story ----------------
+- extendedWaitUntil:
+    visible:
+      text: "Energy, traits and the human story"
+    timeout: 60000
+- tapOn:
+    text: "Very active, lots of sport and trips out"
+    waitUntilVisible: true
+- tapOn:
+    text: "Keep going"
+    waitUntilVisible: true
+# ---------- page 20 of 20: Honesty facts, settling in, pay clarity ------------
+# The last page's nav button reads "Finish" — that tap is the
+# commit (CARESITS_SAVE). Do NOT navigate away after it until the
+# Home card settle below has landed.
+- extendedWaitUntil:
+    visible:
+      text: "Honesty facts, settling in, and pay clarity"
+    timeout: 60000
+- tapOn:
+    text: "Yes"
+    waitUntilVisible: true
+- takeScreenshot: 11-p20-last-page
+- tapOn:
+    text: "Finish"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "All done, beautifully"
+    timeout: 120000
+# The ACCOUNT lead line, not the local-only line: the in-flow
+# discrimination that the bundle landed on the account.
+- assertVisible:
+    text: "Your answers are saved. From here we line up the carers or families who fit every must you set."
+- takeScreenshot: 12-done
+# ---------- the settle beat: Home's card reads the seam ---------------
+- tapOn:
+    text: "Menu"
+    waitUntilVisible: true
+- tapOn:
+    text: "Home"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Your questions are answered"
+    timeout: 180000
+- takeScreenshot: 13-home-card-stands
+# ---------- stage (iii): sign out through the app's own road ----------
+- tapOn:
+    text: "Menu"
+    waitUntilVisible: true
+- tapOn:
+    text: "Settings"
+    waitUntilVisible: true
+- tapOn:
+    text: "Open the account page"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Your plan"
+    timeout: 60000
+- takeScreenshot: 14-account-page
+- tapOn:
+    text: "Sign out"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Sign in"
+    timeout: 60000
+- tapOn:
+    text: "Open the app"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Find care. Share the day."
+    timeout: 90000
+- takeScreenshot: 15-signed-out
+# ---------- stage (iv): sign in again — the commit stands --------------
+- tapOn:
+    text: "you@example.com"
+    waitUntilVisible: true
+- inputText: "${TEST_EMAIL}"
+- hideKeyboard
+- tapOn:
+    text: "→"
+    waitUntilVisible: true
+- tapOn:
+    text: "Your own password"
+    waitUntilVisible: true
+- inputText: "${TEST_PASSWORD}"
+- hideKeyboard
+- tapOn:
+    text: "Join Caresitters"
+    waitUntilVisible: true
+# The tour is handled only if it stands on re-entry (its state is
+# saved with the account; the b117 legs' dismiss was a no-op when
+# it did not). The name step does not render — the name is set.
+- runFlow:
+    when:
+      visible: "Hello, I am the Caresitters bunny"
+    commands:
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Done"
+          waitUntilVisible: true
+- takeScreenshot: 16-relogin-inside
+- tapOn:
+    text: "Menu"
+    waitUntilVisible: true
+- tapOn:
+    text: "Home"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Your questions are answered"
+    timeout: 180000
+- takeScreenshot: 17-relogin-card-stands
+# ---------- sign out again ---------------------------------------------
+- tapOn:
+    text: "Menu"
+    waitUntilVisible: true
+- tapOn:
+    text: "Settings"
+    waitUntilVisible: true
+- tapOn:
+    text: "Open the account page"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Your plan"
+    timeout: 60000
+- tapOn:
+    text: "Sign out"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Sign in"
+    timeout: 60000
+- tapOn:
+    text: "Open the app"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Find care. Share the day."
+    timeout: 90000
+- takeScreenshot: 18-signed-out-again
+# ---------- stage (v): the second account — isolation -------------------
+- tapOn:
+    text: "you@example.com"
+    waitUntilVisible: true
+- inputText: "${TEST_EMAIL2}"
+- hideKeyboard
+- tapOn:
+    text: "→"
+    waitUntilVisible: true
+- tapOn:
+    text: "Your own password"
+    waitUntilVisible: true
+- inputText: "${TEST_PASSWORD2}"
+- hideKeyboard
+- tapOn:
+    text: "Join Caresitters"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Hello, I am the Caresitters bunny"
+    timeout: 90000
+- tapOn:
+    text: "Your name"
+    waitUntilVisible: true
+- inputText: "Second Driver CS"
+- hideKeyboard
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- tapOn:
+    text: "Next"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "You are all set"
+    timeout: 30000
+- tapOn:
+    text: "Done"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    notVisible:
+      text: "You are all set"
+    timeout: 30000
+- takeScreenshot: 19-second-account-in
+# Isolation, first half: this account's Home card never reaches
+# the answered state in the settle window.
+- extendedWaitUntil:
+    notVisible:
+      text: "Your questions are answered"
+    timeout: 60000
+- assertNotVisible:
+    text: "Your questions are answered"
+- takeScreenshot: 20-isolation-home
+# Isolation, second half: its questionnaire stands at the fresh
+# welcome — no committed journey, no resume into a Done state.
+- tapOn:
+    text: "Menu"
+    waitUntilVisible: true
+- tapOn:
+    text: "Finding care"
+    waitUntilVisible: true
+- tapOn:
+    text: "Questionnaire"
+    waitUntilVisible: true
+- extendedWaitUntil:
+    visible:
+      text: "Let us find your perfect match"
+    timeout: 90000
+- assertNotVisible:
+    text: "All done, beautifully"
+- takeScreenshot: 21-isolation-journey-fresh
+# ---------- stage (vi): the delete leg is NOT in this flow --------------
+# Per the registered spine shape, deletion runs from QA's chair
+# against the real backend, not in Maestro — and on this app it
+# rides the DEL-2-proven road (cs-del2-experiment.js): on the
+# account page, the first tap on "Delete my account" opens the
+# confirmation sheet and deletes nothing; a wrong proof speaks
+# "That password does not match. Nothing was deleted." and stops;
+# the true proof runs the extended walk to the deleted line.
+# The close is QA's owner-side full-footprint read at 404 —
+# users/{uid} + profiles/{uid} + meta/questionnaire + every walk
+# path + _entitlements/{uid} included, per the fleet
+# delete-verification law — reported beside this drive's
+# SIMULATOR results, never inside them.
