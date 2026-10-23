@@ -1,4 +1,14 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v7 (2026-10-23) — drive 6 (run 39959129566) died at
+# step-018: the tour stood at stop 2 ("This is your menu") while
+# the flow waited for stop 1's greeting. The Join tap's retry
+# had overshot into stop 1's Next during the slow submit
+# (RETRY-TAP OVERSHOOT — a retry-armed submit tap fires its
+# second tap into whatever surface the first tap opened).
+# v7: all three Join taps lose the retry, and the tour entry
+# branches — the presentation judged by the universal "Next",
+# the fresh walk and the stop-2 walk both run conditionally
+# into the shared "You are all set" tail.
 # Version: v6 (2026-10-23) — v5 COMPLETED THE DOOR AND CREATED
 # THE ACCOUNT on drive 5 (run 39955311365; the (90%, 58%)
 # dismissal + retry Join landed; the tour name stood and home
@@ -103,37 +113,60 @@ appId: com.ilse.caresits
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
-    retryTapIfNoChange: true
 # The creation announcement ("That email is new here, so we made
 # your account. Welcome in.") is transient in #doorMsg; this frame
 # is its evidence window, not an assertion (see NOTES).
 - takeScreenshot: 03-join-tapped
-# ---------- first entry: the tour, name step first ------------------
+# ---------- first entry: the tour -----------------------------------
 # Five stops; the name is saved by the first Next tap. The sentinel
-# name for this spine is typed here.
+# name for this spine is typed here — ON A FRESH ACCOUNT. A returning
+# account whose name already stands meets the tour wherever it
+# stands (drive 6, run 39959129566: the tour stood at stop 2,
+# "This is your menu", the Join tap's own retry having overshot
+# into stop 1's Next — RETRY-TAP OVERSHOOT; the Join tap no longer
+# carries a retry). Both shapes walk to the shared tail. The
+# tour's presentation is judged first by its universal marker:
+# every stop but the last carries a "Next" button.
 - extendedWaitUntil:
     visible:
-      text: "Hello, I am the Caresitters bunny"
-    timeout: 90000
-- tapOn:
-    text: "Your name"
-    waitUntilVisible: true
-- inputText: "Sim Driver CS"
-- tapOn:
-    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
-- takeScreenshot: 04-tour-name
-- tapOn:
-    text: "Next"
-    waitUntilVisible: true
-- tapOn:
-    text: "Next"
-    waitUntilVisible: true
-- tapOn:
-    text: "Next"
-    waitUntilVisible: true
-- tapOn:
-    text: "Next"
-    waitUntilVisible: true
+      text: "Next"
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Hello, I am the Caresitters bunny"
+    commands:
+      - tapOn:
+          text: "Your name"
+          waitUntilVisible: true
+      - inputText: "Sim Driver CS"
+      - tapOn:
+          point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
+      - takeScreenshot: 04-tour-name
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+- runFlow:
+    when:
+      visible: "This is your menu"
+    commands:
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
 - extendedWaitUntil:
     visible:
       text: "You are all set"
@@ -577,7 +610,6 @@ appId: com.ilse.caresits
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
-    retryTapIfNoChange: true
 # The tour is handled only if it stands on re-entry (its state is
 # saved with the account; the b117 legs' dismiss was a no-op when
 # it did not). The name step does not render — the name is set.
@@ -661,7 +693,6 @@ appId: com.ilse.caresits
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
-    retryTapIfNoChange: true
 - extendedWaitUntil:
     visible:
       text: "Hello, I am the Caresitters bunny"
