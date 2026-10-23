@@ -1,4 +1,14 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v6 (2026-10-23) — v5 COMPLETED THE DOOR AND CREATED
+# THE ACCOUNT on drive 5 (run 39955311365; the (90%, 58%)
+# dismissal + retry Join landed; the tour name stood and home
+# opened) and died at step-031, the journey's first "Menu"
+# tap: the button RENDERS "Menu" but its tree name
+# (accessibility label) is "Open menu" — read from drive 5's
+# own failure hierarchy, where NO "Menu" node exists and
+# "Open menu" stands. v6 corrects all six menu taps. Selector
+# lesson, same family as Fit's aria "Next": the tree name
+# governs, never the rendered glyph text.
 # Version: v5 (2026-10-23) — v4 FAILED-INSTRUMENT at drive 4 (run
 # 39951420747, step-018): the door completed for the first time
 # (the "Next" cure landed; 02 stands with 21 bullets) and died
@@ -138,7 +148,7 @@ appId: com.ilse.caresits
 - takeScreenshot: 05-inside
 # ---------- stage (ii): the journey — open it ------------------------
 - tapOn:
-    text: "Menu"
+    text: "Open menu"
     waitUntilVisible: true
 - tapOn:
     text: "Finding care"
@@ -507,7 +517,7 @@ appId: com.ilse.caresits
 - takeScreenshot: 12-done
 # ---------- the settle beat: Home's card reads the seam ---------------
 - tapOn:
-    text: "Menu"
+    text: "Open menu"
     waitUntilVisible: true
 - tapOn:
     text: "Home"
@@ -519,7 +529,7 @@ appId: com.ilse.caresits
 - takeScreenshot: 13-home-card-stands
 # ---------- stage (iii): sign out through the app's own road ----------
 - tapOn:
-    text: "Menu"
+    text: "Open menu"
     waitUntilVisible: true
 - tapOn:
     text: "Settings"
@@ -592,7 +602,7 @@ appId: com.ilse.caresits
           waitUntilVisible: true
 - takeScreenshot: 16-relogin-inside
 - tapOn:
-    text: "Menu"
+    text: "Open menu"
     waitUntilVisible: true
 - tapOn:
     text: "Home"
@@ -604,7 +614,7 @@ appId: com.ilse.caresits
 - takeScreenshot: 17-relogin-card-stands
 # ---------- sign out again ---------------------------------------------
 - tapOn:
-    text: "Menu"
+    text: "Open menu"
     waitUntilVisible: true
 - tapOn:
     text: "Settings"
@@ -698,7 +708,7 @@ appId: com.ilse.caresits
 # Isolation, second half: its questionnaire stands at the fresh
 # welcome — no committed journey, no resume into a Done state.
 - tapOn:
-    text: "Menu"
+    text: "Open menu"
     waitUntilVisible: true
 - tapOn:
     text: "Finding care"
