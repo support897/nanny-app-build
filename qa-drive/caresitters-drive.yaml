@@ -253,6 +253,11 @@ appId: com.ilse.caresits
     text: "Australia"
     waitUntilVisible: true
 - takeScreenshot: 07-p01-country
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -261,32 +266,67 @@ appId: com.ilse.caresits
     visible:
       text: "What kind of carer are you looking for?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Babysitter"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Babysitter"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Your postcode"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Your postcode"
     waitUntilVisible: true
 - inputText: "4217"
 - tapOn:
     point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
+- scrollUntilVisible:
+    element:
+      text: "0-1"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "0-1"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "English"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "English"
     waitUntilVisible: true
 # Two yes/no fields on this page, in field order: pets, then
 # smoker household. Maestro index picks among the "Yes" matches.
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     index: 0
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     index: 1
     waitUntilVisible: true
 - takeScreenshot: 08-p02-family
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -298,16 +338,36 @@ appId: com.ilse.caresits
 # The grid cells carry no visible text (empty buttons); this tap
 # addresses the first cell by its aria-label, "Mon morning" — see
 # NOTES, UNSOURCED + judgement call 1.
+- scrollUntilVisible:
+    element:
+      text: "Mon morning"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Mon morning"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "As soon as possible"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "As soon as possible"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "18"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "18"
     waitUntilVisible: true
 - takeScreenshot: 09-p03-week
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -316,9 +376,19 @@ appId: com.ilse.caresits
     visible:
       text: "What do your kids love doing?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Arts and crafts"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Arts and crafts"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -327,9 +397,19 @@ appId: com.ilse.caresits
     visible:
       text: "Traits you hope for in your carer"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Warm"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Warm"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -338,44 +418,99 @@ appId: com.ilse.caresits
     visible:
       text: "Carer's age"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Australian"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Australian"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "English"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "English"
     waitUntilVisible: true
 # Three yes/no fields on this page, in field order: non smoker,
 # special needs, happy around pets. Indices among "Yes" matches.
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     index: 0
     waitUntilVisible: true
 # The experience field's check chip (its year selects are native
 # <select> elements and stay untouched — see NOTES).
+- scrollUntilVisible:
+    element:
+      text: "Register verified"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Register verified"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Drives, own car"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Drives, own car"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "School runs"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "School runs"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Steady rhythm"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Steady rhythm"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     index: 1
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     index: 2
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "2"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "2"
     waitUntilVisible: true
 - takeScreenshot: 10-p06-looking-for
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -384,15 +519,35 @@ appId: com.ilse.caresits
     visible:
       text: "When a child will not listen, what should the carer do first?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Talk calmly and explain"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Talk calmly and explain"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "We use it"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "We use it"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Follow our plan closely"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Follow our plan closely"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -401,12 +556,27 @@ appId: com.ilse.caresits
     visible:
       text: "How much screen time is right for your children?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "None at all"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "None at all"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Only for calls to us"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Only for calls to us"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -415,12 +585,27 @@ appId: com.ilse.caresits
     visible:
       text: "Who plans the meals and snacks?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "We plan them"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "We plan them"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Peanuts"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Peanuts"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -429,12 +614,27 @@ appId: com.ilse.caresits
     visible:
       text: "How should your baby or toddler be put to sleep?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Follow our sleep plan"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Follow our sleep plan"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Yes, at set times"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes, at set times"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -443,9 +643,19 @@ appId: com.ilse.caresits
     visible:
       text: "How do you want to hear about the day?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Photos and notes in the app"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Photos and notes in the app"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -454,12 +664,27 @@ appId: com.ilse.caresits
     visible:
       text: "How long do you want this carer to stay with your family?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "A few weeks"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "A few weeks"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -471,10 +696,20 @@ appId: com.ilse.caresits
     visible:
       text: "Must your carer hold a first aid certificate for babies and children?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Must have"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Must have"
     index: 0
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -482,6 +717,11 @@ appId: com.ilse.caresits
 - extendedWaitUntil:
     visible:
       text: "May the carer have friends visit your home?"
+    timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Yes, any time"
+    direction: DOWN
     timeout: 60000
 - tapOn:
     text: "Yes, any time"
@@ -491,12 +731,27 @@ appId: com.ilse.caresits
 # time" again — an idempotent re-tap of an already-set select
 # chip, costing at most one OPTIONAL answer, never a blocked
 # page (see NOTES, judgement call 3).
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "No set time"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "No set time"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -505,18 +760,43 @@ appId: com.ilse.caresits
     visible:
       text: "How many children will the carer be with at one time, most days?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "One"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "One"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Speech"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Speech"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Yes, most days"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes, most days"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Pool"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Pool"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -526,10 +806,20 @@ appId: com.ilse.caresits
     visible:
       text: "Would you love a carer who has worked in a childcare centre or a school?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Must have"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Must have"
     index: 0
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -538,9 +828,19 @@ appId: com.ilse.caresits
     visible:
       text: "How well must the carer speak your main home language?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Very well"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Very well"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -549,9 +849,19 @@ appId: com.ilse.caresits
     visible:
       text: "Will the carer stay overnight with the children while you are away?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -560,9 +870,19 @@ appId: com.ilse.caresits
     visible:
       text: "How active is your family life?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Very active, lots of sport and trips out"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Very active, lots of sport and trips out"
     waitUntilVisible: true
+- scrollUntilVisible:
+    element:
+      text: "Keep going"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Keep going"
     waitUntilVisible: true
@@ -574,10 +894,20 @@ appId: com.ilse.caresits
     visible:
       text: "Do you have cameras in shared areas of your home?"
     timeout: 60000
+- scrollUntilVisible:
+    element:
+      text: "Yes"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Yes"
     waitUntilVisible: true
 - takeScreenshot: 11-p20-last-page
+- scrollUntilVisible:
+    element:
+      text: "Finish"
+    direction: DOWN
+    timeout: 60000
 - tapOn:
     text: "Finish"
     waitUntilVisible: true
