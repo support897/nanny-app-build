@@ -1,4 +1,14 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v4 (2026-10-23) — v3 FAILED-INSTRUMENT at drive 3 (run
+# 39948532405, step-011 tapOn "→"): the door PROVED (00-door whole;
+# the 180 s tagline window held — drive 1's timing death cured;
+# the tester's email typed on 01) and died at the FIRST advance:
+# the drawn arrow is not tree text on this door either — the
+# failure hierarchy names the button "Next", bounds
+# [332,554][384,606], exactly ONE such node (no ghost twin on
+# this door). GLYPH-NAME MISS, second door (Meal Prep drive 2's
+# disease). v4 cures: the three door advances tap text "Next"
+# with retryTapIfNoChange. v3: 20,382 B.
 # The FINISHING ORDER spine for candidate 117's simulator copy
 # (bundle com.ilse.caresits, version 1.0, build 117; the copy's
 # byte-leg pins stand in store-uploads/scratch/caresitters-sim/
@@ -56,8 +66,9 @@ appId: com.ilse.caresits
     point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - takeScreenshot: 01-email-step
 - tapOn:
-    text: "→"
+    text: "Next"
     waitUntilVisible: true
+    retryTapIfNoChange: true
 - tapOn:
     text: "Your own password"
     waitUntilVisible: true
@@ -529,8 +540,9 @@ appId: com.ilse.caresits
 - tapOn:
     point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
-    text: "→"
+    text: "Next"
     waitUntilVisible: true
+    retryTapIfNoChange: true
 - tapOn:
     text: "Your own password"
     waitUntilVisible: true
@@ -611,8 +623,9 @@ appId: com.ilse.caresits
 - tapOn:
     point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
-    text: "→"
+    text: "Next"
     waitUntilVisible: true
+    retryTapIfNoChange: true
 - tapOn:
     text: "Your own password"
     waitUntilVisible: true
