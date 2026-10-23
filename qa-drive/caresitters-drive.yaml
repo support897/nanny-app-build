@@ -1,4 +1,18 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v5 (2026-10-23) — v4 FAILED-INSTRUMENT at drive 4 (run
+# 39951420747, step-018): the door completed for the first time
+# (the "Next" cure landed; 02 stands with 21 bullets) and died
+# at the submit: the dismissal point (90%, 62%) landed BELOW
+# this door's accessory bar — the bar's tick measures (89%,
+# 58%) on drive 4's own frames — so the input session stood
+# through the Join tap and absorbed it (BAR-OVER-SUBMIT, third
+# door; here the bar never overlapped the button — the standing
+# session itself eats the tap). Both frames show the door
+# unchanged, no announcement, and REST confirms no account was
+# created. v5 cures: the three password dismissals take this
+# door's measured (90%, 58%) and every Join tap gains
+# retryTapIfNoChange. The email legs' (90%, 62%) stands —
+# proven on this drive. v4: 21,085 B.
 # Version: v4 (2026-10-23) — v3 FAILED-INSTRUMENT at drive 3 (run
 # 39948532405, step-011 tapOn "→"): the door PROVED (00-door whole;
 # the 180 s tagline window held — drive 1's timing death cured;
@@ -74,11 +88,12 @@ appId: com.ilse.caresits
     waitUntilVisible: true
 - inputText: "${TEST_PASSWORD}"
 - tapOn:
-    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
+    point: "90%, 58%"  # accessory Done, CENTRE MEASURED on drive 4 (the bar's tick sits at 58% on this door; 62% landed below the bar and the standing input session ate the Join tap)
 - takeScreenshot: 02-password-step
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
+    retryTapIfNoChange: true
 # The creation announcement ("That email is new here, so we made
 # your account. Welcome in.") is transient in #doorMsg; this frame
 # is its evidence window, not an assertion (see NOTES).
@@ -548,10 +563,11 @@ appId: com.ilse.caresits
     waitUntilVisible: true
 - inputText: "${TEST_PASSWORD}"
 - tapOn:
-    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
+    point: "90%, 58%"  # accessory Done, CENTRE MEASURED on drive 4 (the bar's tick sits at 58% on this door; 62% landed below the bar and the standing input session ate the Join tap)
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
+    retryTapIfNoChange: true
 # The tour is handled only if it stands on re-entry (its state is
 # saved with the account; the b117 legs' dismiss was a no-op when
 # it did not). The name step does not render — the name is set.
@@ -631,10 +647,11 @@ appId: com.ilse.caresits
     waitUntilVisible: true
 - inputText: "${TEST_PASSWORD2}"
 - tapOn:
-    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
+    point: "90%, 58%"  # accessory Done, CENTRE MEASURED on drive 4 (the bar's tick sits at 58% on this door; 62% landed below the bar and the standing input session ate the Join tap)
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
+    retryTapIfNoChange: true
 - extendedWaitUntil:
     visible:
       text: "Hello, I am the Caresitters bunny"
