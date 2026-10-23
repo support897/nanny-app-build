@@ -274,17 +274,26 @@ appId: com.ilse.caresits
 - tapOn:
     text: "Babysitter"
     waitUntilVisible: true
-- scrollUntilVisible:
-    element:
-      text: "Your postcode"
+# The postcode input carries NO text node and its label is a <p>,
+# not a <label> (shipped journey.js fieldHtml) — tapping the label
+# never focuses the input, so drive 10's type went nowhere and the
+# page's required-field gate held "Keep going" shut (the shipped
+# #nextBtn handler returns on a missing required field). Cure:
+# return the page to its top (a deterministic scroll state), tap
+# the INPUT ITSELF by the point measured from drive 9's page-top
+# frame (the box centred ~(50%, 71%) under its label), then type.
+- swipe:
     direction: DOWN
-    timeout: 60000
+- swipe:
+    direction: DOWN
+- swipe:
+    direction: DOWN
 - tapOn:
-    text: "Your postcode"
-    waitUntilVisible: true
+    point: "50%, 71%"
+- waitForAnimationToEnd
 - inputText: "4217"
 - tapOn:
-    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
+    point: "90%, 58%"  # this door's measured accessory tick (v5)
 - scrollUntilVisible:
     element:
       text: "0-1"
