@@ -52,7 +52,8 @@ appId: com.ilse.caresits
     text: "you@example.com"
     waitUntilVisible: true
 - inputText: "${TEST_EMAIL}"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - takeScreenshot: 01-email-step
 - tapOn:
     text: "→"
@@ -61,7 +62,8 @@ appId: com.ilse.caresits
     text: "Your own password"
     waitUntilVisible: true
 - inputText: "${TEST_PASSWORD}"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - takeScreenshot: 02-password-step
 - tapOn:
     text: "Join Caresitters"
@@ -81,7 +83,8 @@ appId: com.ilse.caresits
     text: "Your name"
     waitUntilVisible: true
 - inputText: "Sim Driver CS"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - takeScreenshot: 04-tour-name
 - tapOn:
     text: "Next"
@@ -154,7 +157,8 @@ appId: com.ilse.caresits
     text: "Your postcode"
     waitUntilVisible: true
 - inputText: "4217"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
     text: "0-1"
     waitUntilVisible: true
@@ -522,7 +526,8 @@ appId: com.ilse.caresits
     text: "you@example.com"
     waitUntilVisible: true
 - inputText: "${TEST_EMAIL}"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
     text: "→"
     waitUntilVisible: true
@@ -530,7 +535,8 @@ appId: com.ilse.caresits
     text: "Your own password"
     waitUntilVisible: true
 - inputText: "${TEST_PASSWORD}"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
@@ -602,7 +608,8 @@ appId: com.ilse.caresits
     text: "you@example.com"
     waitUntilVisible: true
 - inputText: "${TEST_EMAIL2}"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
     text: "→"
     waitUntilVisible: true
@@ -610,7 +617,8 @@ appId: com.ilse.caresits
     text: "Your own password"
     waitUntilVisible: true
 - inputText: "${TEST_PASSWORD2}"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
     text: "Join Caresitters"
     waitUntilVisible: true
@@ -622,7 +630,8 @@ appId: com.ilse.caresits
     text: "Your name"
     waitUntilVisible: true
 - inputText: "Second Driver CS"
-- hideKeyboard
+- tapOn:
+    point: "90%, 62%"  # WKWebView accessory Done (hideKeyboard class cure)
 - tapOn:
     text: "Next"
     waitUntilVisible: true
