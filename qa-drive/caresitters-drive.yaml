@@ -1,4 +1,14 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v13 (2026-10-24) — every email leg gains a
+# staggered recovery pair keyed on the door's own spoken
+# line "That email looks unfinished. One more look?"
+# (drive 13, run 40037690046: the first type raced, the
+# field stood empty, Next spoke the line, and the fatal
+# password-field tap died at step-012 with no recovery
+# standing). Each recovery retypes erase-first by the
+# field's measured point (42%, 66% — the input's bounds
+# in drive 13's death hierarchy) and taps Next again;
+# the password-step tap behind decides.
 # Version: v9 (2026-10-24) — v8's FULL MATCH CURE LANDED on
 # drive 8 (run 39968908489): the composed card was tapped
 # after the scroll and THE QUESTIONNAIRE OPENED — death at
@@ -132,6 +142,33 @@ appId: com.ilse.caresits
     text: "Next"
     waitUntilVisible: true
     retryTapIfNoChange: true
+- runFlow:
+    when:
+      visible: "That email looks unfinished. One more look?"
+    commands:
+      - tapOn:
+          point: "42%, 66%"
+      - eraseText: 40
+      - inputText: "${TEST_EMAIL}"
+      - tapOn:
+          point: "90%, 62%"
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible: "That email looks unfinished. One more look?"
+    commands:
+      - tapOn:
+          point: "42%, 66%"
+      - eraseText: 40
+      - inputText: "${TEST_EMAIL}"
+      - tapOn:
+          point: "90%, 62%"
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
 - tapOn:
     text: "Your own password"
     waitUntilVisible: true
@@ -998,6 +1035,33 @@ appId: com.ilse.caresits
     text: "Next"
     waitUntilVisible: true
     retryTapIfNoChange: true
+- runFlow:
+    when:
+      visible: "That email looks unfinished. One more look?"
+    commands:
+      - tapOn:
+          point: "42%, 66%"
+      - eraseText: 40
+      - inputText: "${TEST_EMAIL}"
+      - tapOn:
+          point: "90%, 62%"
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible: "That email looks unfinished. One more look?"
+    commands:
+      - tapOn:
+          point: "42%, 66%"
+      - eraseText: 40
+      - inputText: "${TEST_EMAIL}"
+      - tapOn:
+          point: "90%, 62%"
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
 - tapOn:
     text: "Your own password"
     waitUntilVisible: true
@@ -1081,6 +1145,33 @@ appId: com.ilse.caresits
     text: "Next"
     waitUntilVisible: true
     retryTapIfNoChange: true
+- runFlow:
+    when:
+      visible: "That email looks unfinished. One more look?"
+    commands:
+      - tapOn:
+          point: "42%, 66%"
+      - eraseText: 40
+      - inputText: "${TEST_EMAIL2}"
+      - tapOn:
+          point: "90%, 62%"
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
+- waitForAnimationToEnd
+- runFlow:
+    when:
+      visible: "That email looks unfinished. One more look?"
+    commands:
+      - tapOn:
+          point: "42%, 66%"
+      - eraseText: 40
+      - inputText: "${TEST_EMAIL2}"
+      - tapOn:
+          point: "90%, 62%"
+      - tapOn:
+          text: "Next"
+          waitUntilVisible: true
 - tapOn:
     text: "Your own password"
     waitUntilVisible: true
