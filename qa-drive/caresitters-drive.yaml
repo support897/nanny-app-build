@@ -1,4 +1,9 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v14 (2026-10-24) — the postcode point is
+# re-measured off drive 14's own tap-state frame (the box
+# grounded at centre (50%, 89%); the 83% point tapped the
+# label and the type went nowhere — 08c's notice named the
+# postcode), and a notice-keyed recovery stands behind 08c.
 # Version: v13 (2026-10-24) — every email leg gains a
 # staggered recovery pair keyed on the door's own spoken
 # line "That email looks unfinished. One more look?"
@@ -330,8 +335,16 @@ appId: com.ilse.caresits
 # hierarchy bounds (page-top state): the label spans y 664-689,
 # the ages label starts at 769 — the input between them centres
 # at ~(50%, 83%).
+# DRIVE 14 (run 40038978892) CONVICTS THE 83% POINT on the
+# state the flow itself produces: 08b's box was grounded at
+# y 858-926 of 1000 — centre (50%, 89%) — so the tap landed
+# on the label, the type went nowhere, and 08c's notice
+# named the postcode as the missing field. Drive 9's tree
+# bounds and drive 14's pixels disagree by ~6%: the tap
+# state's freshest measure wins. v14: point (50%, 89%),
+# plus the notice-keyed recovery behind 08c below.
 - tapOn:
-    point: "50%, 83%"
+    point: "50%, 89%"
 - waitForAnimationToEnd
 - inputText: "4217"
 - tapOn:
@@ -392,6 +405,36 @@ appId: com.ilse.caresits
 - swipe:
     direction: DOWN
 - takeScreenshot: 08c-p02-notice
+# RECOVERY (v14): if the gate refused on the postcode, the
+# notice names it — walk back to the page top, tap the box
+# at its drive-14 grounded point, type, and keep going
+# again. Any other missing field leaves this standing down
+# and the page-3 judge names the death as before.
+- runFlow:
+    when:
+      visible: "One more thing on this page: Your postcode."
+    commands:
+      - swipe:
+          direction: DOWN
+      - swipe:
+          direction: DOWN
+      - swipe:
+          direction: DOWN
+      - tapOn:
+          point: "50%, 89%"
+      - waitForAnimationToEnd
+      - inputText: "4217"
+      - tapOn:
+          point: "90%, 58%"
+      - scrollUntilVisible:
+          element:
+            text: "Keep going"
+          direction: DOWN
+          timeout: 60000
+      - tapOn:
+          text: "Keep going"
+          waitUntilVisible: true
+      - waitForAnimationToEnd
 # ---------- page 3 of 20: Your week ----------------------------------
 - extendedWaitUntil:
     visible:
