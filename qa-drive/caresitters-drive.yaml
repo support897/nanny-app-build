@@ -1,4 +1,23 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v9 (2026-10-24) — v8's FULL MATCH CURE LANDED on
+# drive 8 (run 39968908489): the composed card was tapped
+# after the scroll and THE QUESTIONNAIRE OPENED — death at
+# step-038, page 1's title assert: the step-038 hierarchy
+# (40 texts) holds NO "Your country" node at all — #pageTitle
+# never enters this lane's tree (the questionnaire renders
+# inside its iframe, its fields standing, its chrome title
+# outside the rendered window). The flow's 20 page asserts
+# were the page TITLES from the authoring notes — the right
+# pages in the right order, judged by a surface that is not
+# there. v9 re-sources ALL TWENTY asserts to each page's
+# FIRST FIELD LABEL, read from the shipped questions.js +
+# questions2.js in walk order (page 1's label is drive-proven:
+# "Which country will the care happen in?" stands in the
+# step-038 hierarchy itself). Every answer tap was diffed
+# against the shipped options in the same pass — all stand.
+# The post-Finish lines were verified verbatim in lang.js
+# ("All done, beautifully" · journey.dLead · "Your questions
+# are answered").
 # Version: v8 (2026-10-24) — v7's TOUR CURE LANDED WHOLE on
 # drive 7 (run 39964787171): the tour walked out clean
 # (05-inside), the menu opened on its tree name, Finding care
@@ -228,7 +247,7 @@ appId: com.ilse.caresits
 # ---------- page 1 of 20: Your country -------------------------------
 - extendedWaitUntil:
     visible:
-      text: "Your country"
+      text: "Which country will the care happen in?"
     timeout: 60000
 - tapOn:
     text: "Australia"
@@ -240,7 +259,7 @@ appId: com.ilse.caresits
 # ---------- page 2 of 20: Your family --------------------------------
 - extendedWaitUntil:
     visible:
-      text: "Your family"
+      text: "What kind of carer are you looking for?"
     timeout: 60000
 - tapOn:
     text: "Babysitter"
@@ -274,7 +293,7 @@ appId: com.ilse.caresits
 # ---------- page 3 of 20: Your week ----------------------------------
 - extendedWaitUntil:
     visible:
-      text: "Your week"
+      text: "When do you need care?"
     timeout: 60000
 # The grid cells carry no visible text (empty buttons); this tap
 # addresses the first cell by its aria-label, "Mon morning" — see
@@ -295,7 +314,7 @@ appId: com.ilse.caresits
 # ---------- page 4 of 20: Activities with kids ------------------------
 - extendedWaitUntil:
     visible:
-      text: "Activities with kids"
+      text: "What do your kids love doing?"
     timeout: 60000
 - tapOn:
     text: "Arts and crafts"
@@ -306,7 +325,7 @@ appId: com.ilse.caresits
 # ---------- page 5 of 20: Personality ---------------------------------
 - extendedWaitUntil:
     visible:
-      text: "Personality"
+      text: "Traits you hope for in your carer"
     timeout: 60000
 - tapOn:
     text: "Warm"
@@ -317,7 +336,7 @@ appId: com.ilse.caresits
 # ---------- page 6 of 20: The carer you are looking for ---------------
 - extendedWaitUntil:
     visible:
-      text: "The carer you are looking for"
+      text: "Carer's age"
     timeout: 60000
 - tapOn:
     text: "Australian"
@@ -363,7 +382,7 @@ appId: com.ilse.caresits
 # ---------- page 7 of 20: How children are guided ----------------------
 - extendedWaitUntil:
     visible:
-      text: "How children are guided"
+      text: "When a child will not listen, what should the carer do first?"
     timeout: 60000
 - tapOn:
     text: "Talk calmly and explain"
@@ -380,7 +399,7 @@ appId: com.ilse.caresits
 # ---------- page 8 of 20: Screens, phones and photos -------------------
 - extendedWaitUntil:
     visible:
-      text: "Screens, phones and photos of the children"
+      text: "How much screen time is right for your children?"
     timeout: 60000
 - tapOn:
     text: "None at all"
@@ -394,7 +413,7 @@ appId: com.ilse.caresits
 # ---------- page 9 of 20: Food, allergies and treats --------------------
 - extendedWaitUntil:
     visible:
-      text: "Food, allergies and treats"
+      text: "Who plans the meals and snacks?"
     timeout: 60000
 - tapOn:
     text: "We plan them"
@@ -408,7 +427,7 @@ appId: com.ilse.caresits
 # ---------- page 10 of 20: Sleep and settling ----------------------------
 - extendedWaitUntil:
     visible:
-      text: "Sleep and settling"
+      text: "How should your baby or toddler be put to sleep?"
     timeout: 60000
 - tapOn:
     text: "Follow our sleep plan"
@@ -422,7 +441,7 @@ appId: com.ilse.caresits
 # ---------- page 11 of 20: Talking, updates and small problems ----------
 - extendedWaitUntil:
     visible:
-      text: "Talking, updates and sorting out small problems"
+      text: "How do you want to hear about the day?"
     timeout: 60000
 - tapOn:
     text: "Photos and notes in the app"
@@ -433,7 +452,7 @@ appId: com.ilse.caresits
 # ---------- page 12 of 20: How long the match should last ---------------
 - extendedWaitUntil:
     visible:
-      text: "How long the match should last"
+      text: "How long do you want this carer to stay with your family?"
     timeout: 60000
 - tapOn:
     text: "A few weeks"
@@ -450,7 +469,7 @@ appId: com.ilse.caresits
 # index 0 is the answer (see NOTES, judgement call 3).
 - extendedWaitUntil:
     visible:
-      text: "Safety skills in depth"
+      text: "Must your carer hold a first aid certificate for babies and children?"
     timeout: 60000
 - tapOn:
     text: "Must have"
@@ -462,7 +481,7 @@ appId: com.ilse.caresits
 # ---------- page 14 of 20: Living in, for live in roles ------------------
 - extendedWaitUntil:
     visible:
-      text: "Living in, for live in roles"
+      text: "May the carer have friends visit your home?"
     timeout: 60000
 - tapOn:
     text: "Yes, any time"
@@ -484,7 +503,7 @@ appId: com.ilse.caresits
 # ---------- page 15 of 20: The children, in more depth -------------------
 - extendedWaitUntil:
     visible:
-      text: "The children, in more depth"
+      text: "How many children will the carer be with at one time, most days?"
     timeout: 60000
 - tapOn:
     text: "One"
@@ -505,7 +524,7 @@ appId: com.ilse.caresits
 # Same "Must have" shape as page 13: answer chip first, index 0.
 - extendedWaitUntil:
     visible:
-      text: "References and proof of experience"
+      text: "Would you love a carer who has worked in a childcare centre or a school?"
     timeout: 60000
 - tapOn:
     text: "Must have"
@@ -517,7 +536,7 @@ appId: com.ilse.caresits
 # ---------- page 17 of 20: Language in more depth --------------------------
 - extendedWaitUntil:
     visible:
-      text: "Language in more depth"
+      text: "How well must the carer speak your main home language?"
     timeout: 60000
 - tapOn:
     text: "Very well"
@@ -528,7 +547,7 @@ appId: com.ilse.caresits
 # ---------- page 18 of 20: The shape of the work ----------------------------
 - extendedWaitUntil:
     visible:
-      text: "The shape of the work"
+      text: "Will the carer stay overnight with the children while you are away?"
     timeout: 60000
 - tapOn:
     text: "Yes"
@@ -539,7 +558,7 @@ appId: com.ilse.caresits
 # ---------- page 19 of 20: Energy, traits and the human story ----------------
 - extendedWaitUntil:
     visible:
-      text: "Energy, traits and the human story"
+      text: "How active is your family life?"
     timeout: 60000
 - tapOn:
     text: "Very active, lots of sport and trips out"
@@ -553,7 +572,7 @@ appId: com.ilse.caresits
 # Home card settle below has landed.
 - extendedWaitUntil:
     visible:
-      text: "Honesty facts, settling in, and pay clarity"
+      text: "Do you have cameras in shared areas of your home?"
     timeout: 60000
 - tapOn:
     text: "Yes"
