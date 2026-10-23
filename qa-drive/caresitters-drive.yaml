@@ -29,12 +29,22 @@
 appId: com.ilse.caresits
 ---
 # ---------- cold open: the door -------------------------------------
+# Drive 1 (run 39942528123) died HERE, instrument/timing: the tagline
+# assert waited its full 90 s without a match, yet the collect frame
+# minutes later shows the door painted whole with the tagline standing
+# (the fleet's slow-first-paint signature: NM black at frame 00, MP
+# door-only, CS blank at the copy beat). The tagline is one element in
+# the shipped markup (<p class="doorTag">, read at QA's hand), so the
+# string is right; the window was short against a cold sim boot +
+# WebView first paint. v2: a boot frame BEFORE the assert (evidence at
+# the exact beat) + a 180 s window.
 - launchApp:
     clearState: true
+- takeScreenshot: 00a-boot
 - extendedWaitUntil:
     visible:
       text: "Find care. Share the day."
-    timeout: 90000
+    timeout: 180000
 - takeScreenshot: 00-door
 # ---------- stage (i): sign up, account 1 (email step, then ---------
 # ---------- password step; the one button does both) ----------------
