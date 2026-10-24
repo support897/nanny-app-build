@@ -1,4 +1,8 @@
 # Caresitters 117 simulator drive — QA Tester chair.
+# Version: v15 (2026-10-24) — the postcode tap gains a
+# settle and a second tap at both sites (drive 15: the
+# point was right, the tap was eaten by scroll momentum
+# and never focused the input).
 # Version: v14 (2026-10-24) — the postcode point is
 # re-measured off drive 14's own tap-state frame (the box
 # grounded at centre (50%, 89%); the 83% point tapped the
@@ -343,6 +347,20 @@ appId: com.ilse.caresits
 # bounds and drive 14's pixels disagree by ~6%: the tap
 # state's freshest measure wins. v14: point (50%, 89%),
 # plus the notice-keyed recovery behind 08c below.
+# DRIVE 15 (run 40041173864) CONVICTS THE TAP ITSELF, not
+# the point: the state is STABLE (the box grounds at
+# centre (50%, 89.6%) again, the 89% tap lands INSIDE it)
+# yet the field stayed empty through both the main attempt
+# and the recovery. The tap fires in the same breath as
+# the third swipe — on a WebView still carrying momentum
+# the first tap only STOPS THE SCROLL and never focuses;
+# the type then goes nowhere. v15 cure: settle BEFORE the
+# tap, and tap TWICE (the first kills any momentum, the
+# second focuses), at both sites.
+- waitForAnimationToEnd
+- tapOn:
+    point: "50%, 89%"
+- waitForAnimationToEnd
 - tapOn:
     point: "50%, 89%"
 - waitForAnimationToEnd
@@ -420,6 +438,10 @@ appId: com.ilse.caresits
           direction: DOWN
       - swipe:
           direction: DOWN
+      - waitForAnimationToEnd
+      - tapOn:
+          point: "50%, 89%"
+      - waitForAnimationToEnd
       - tapOn:
           point: "50%, 89%"
       - waitForAnimationToEnd
