@@ -1,23 +1,14 @@
 {
-  "name": "store",
+  "name": "caresitters-store-build",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "private": true,
+  "description": "Capacitor iOS wrapper for Caresitters",
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.5.2",
-    "@capacitor/android": "^8.5.3",
     "@capacitor/cli": "^8.5.3",
     "@capacitor/core": "^8.5.3",
     "@capacitor/ios": "^8.5.3",
-    "@revenuecat/purchases-capacitor": "^13.7.4"
-  },
-  "devDependencies": {
-    "@capacitor/assets": "^3.0.5"
+    "@capacitor/local-notifications": "^8.3.1",
+    "@revenuecat/purchases-capacitor": "^13.7.6"
   }
 }
