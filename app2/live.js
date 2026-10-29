@@ -7,7 +7,13 @@
 // carries ?twin=1; every other visit uses the production
 // config beside this file.
 import { levelOf, mergeDeepAnswers } from "./levels.js";
+import { cleanMode, modeFromAppDoc } from "./mode.js";
+import { accountKey, clearSessionMarkers } from "./storage-keys.js";
+import { cleanJobListings } from "./pair-actions.js";
+import { normaliseLearningPlan, publicLearningPlan } from "./activities.js";
+import { applyI18n } from "./lang.js";
 import { resolvePlan, entitlementFromRecord, plusExtrasOpen, withTimeout } from "../accounts/account.js";
+import { installFileRoads } from "./files.js";
 
 // The photo lifecycle stamp path (HQ spec, 19 Oct 2026):
 // carers only, at the root, beside _comp and _entitlements.
@@ -17,6 +23,8 @@ import { resolvePlan, entitlementFromRecord, plusExtrasOpen, withTimeout } from 
 export function activityStampPath(uid, side) {
   return uid && side === "carer" ? `_activity/${uid}` : null;
 }
+
+export const ENTRY_ROLES = Object.freeze(["career", "family", "communicate"]);
 
 export function routeWrite(kind, payload, uid) {
   if (!uid) return { ok: false, reason: "signed-out" };
@@ -45,7 +53,14 @@ export function routeWrite(kind, payload, uid) {
     // (Ilse's ruling, 19 Oct 2026): the carer returns, adds a
     // photo, and the profile is back in family search. A
     // manual remove leaves the stamp as it stands.
-    case "photo": return { ok: true, op: "merge", path: `profiles/${uid}`, data: payload.photoUrl ? { photoUrl: payload.photoUrl, photoClearedAt: null } : { photoUrl: payload.photoUrl } };
+    // The profiles fence admits photoUrl alone: an earlier
+    // shape rode photoClearedAt beside it, a field no sealed
+    // rules text admits, and Firestore refused every photo
+    // save for it (proven on the twin, 29 Oct 2026: the pair
+    // answers 403, photoUrl alone 200). The tombstone's
+    // reader in browse.js simply never sees the field now,
+    // which is the same world as when the write never landed.
+    case "photo": return { ok: true, op: "merge", path: `profiles/${uid}`, data: { photoUrl: payload.photoUrl } };
     case "gallery": return { ok: true, op: "merge", path: `profiles/${uid}`, data: { card: { gallery: (Array.isArray(payload.gallery) ? payload.gallery : []).filter((u) => typeof u === "string" && u).slice(0, 4) } } };
     // The resume file record names a TEMPORARY object only
     // (Ilse's resume model, 19 Oct 2026): an uploaded resume is
@@ -59,7 +74,34 @@ export function routeWrite(kind, payload, uid) {
     case "reminder": return { ok: true, op: "merge", path: `users/${uid}/meta/reminders`, data: { text: payload.text, when: payload.when } };
     case "emergency": return { ok: true, op: "merge", path: `users/${uid}/meta/emergency`, data: { name: payload.name, phone: payload.phone } };
     case "appearance": return { ok: true, op: "merge", path: `users/${uid}/meta/app`, data: { background: payload.choice } };
+    case "entry-role": return ENTRY_ROLES.includes(payload.entryRole) ? { ok: true, op: "merge", path: `users/${uid}/meta/app`, data: { entryRole: payload.entryRole } } : { ok: false, reason: "invalid-role" };
+    case "active-side": return ENTRY_ROLES.includes(payload.side) ? { ok: true, op: "merge", path: `users/${uid}/meta/app`, data: { activeSide: payload.side } } : { ok: false, reason: "invalid-side" };
+    case "side-tour": {
+      const field = { family: "tourFamilyDone", career: "tourCareerDone", communicate: "tourCommunicateDone" }[payload.side];
+      return field ? { ok: true, op: "merge", path: `users/${uid}/meta/app`, data: { [field]: true } } : { ok: false, reason: "invalid-side" };
+    }
+    // Postcode and specific dates ride the need from
+    // 29 Oct 2026 (plan item D): the postcode is four
+    // digits or empty, the dates are ISO day strings,
+    // deduped, sorted, capped at 14, closed shape like
+    // the kinds and days beside them. The meta fence is
+    // owner free form (banned keys only), so no rules
+    // change rides with this.
+    case "need": return { ok: true, op: "merge", path: `users/${uid}/meta/need`, data: { text: String(payload.text || "").slice(0, 300), kinds: (payload.kinds || []).slice(0, 8).map(String), days: (payload.days || []).slice(0, 7).map(String), parts: (payload.parts || []).slice(0, 3).map(String), postcode: /^\d{4}$/.test(String(payload.postcode || "")) ? String(payload.postcode) : "", dates: [...new Set((Array.isArray(payload.dates) ? payload.dates : []).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d))).map(String))].sort().slice(0, 14) } };
+    case "favs": return { ok: true, op: "merge", path: `users/${uid}/meta/favs`, data: { uids: (Array.isArray(payload.uids) ? payload.uids : []).filter((u) => typeof u === "string").slice(0, 60) } };
+    case "aupair": return { ok: true, op: "merge", path: `profiles/${uid}`, data: { card: { auPair: payload.auPair } } };
+    case "about": return { ok: true, op: "merge", path: `profiles/${uid}`, data: { about: String(payload.about || "").slice(0, 300), ...(payload.name ? { displayName: String(payload.name).trim().slice(0, 40) } : {}) } };
+    case "learning-plan": {
+      const plan = publicLearningPlan(normaliseLearningPlan(payload.plan));
+      return { ok: true, op: "learningPlan", path: `users/${uid}/meta/app`, profilePath: `profiles/${uid}`, data: { learningPlan: plan }, profileData: { learningPlan: plan }, pairPath: typeof payload.pairId === "string" && payload.pairId ? `relationships/${payload.pairId}` : "", pairData: { learningPlan: plan } };
+    }
     case "language": return { ok: true, op: "merge", path: `users/${uid}/meta/app`, data: { language: payload.code } };
+    // The Finding / Connected view pick (Ilse's ruling,
+    // 28 Oct 2026) rides the same meta/app doc as language
+    // and appearance, so it follows the member across
+    // devices. Closed like its neighbours: only the two
+    // modes stand, anything else is refused.
+    case "mode": { const m = cleanMode(payload && payload.mode); return m ? { ok: true, op: "merge", path: `users/${uid}/meta/app`, data: { mode: m } } : { ok: false, reason: "invalid-mode" }; }
     case "name": return { ok: true, op: "merge", path: `users/${uid}`, data: { displayName: payload.displayName } };
     case "message": return { ok: true, op: "add", path: `users/${uid}/messages`, data: { pairId: payload.pairId, text: payload.text, at: payload.at, mine: true } };
     case "request": return { ok: true, op: "add", path: payload.path, data: payload.data };
@@ -126,6 +168,29 @@ let lastTrustInputs = null;
 // here and applied at every publication until the documents
 // themselves carry it.
 let pendingTrustName = "";
+
+function resetMemberSeams(uid) {
+  pendingTrustName = "";
+  lastTrustInputs = null;
+  if (typeof window === "undefined") return;
+  window.CARESITS_ME = { uid, side: "", name: "", entryRole: "", activeSide: "" };
+  window.CARESITS_LEARNING_PLAN = null;
+  window.CARESITS_TRUST = { me: { uid, side: "", name: "" }, checks: [], reviews: [] };
+  window.CARESITS_QUESTIONS = null;
+  window.CARESITS_PROFILE_COMPLETE = false;
+  window.CARESITS_PLAN = null;
+  window.CARESITS_FAMILY = { children: [], entries: [], side: "" };
+  window.CARESITS_BIN = [];
+  window.CARESITS_WEEK = { timesheets: [], reminder: null, emergency: null };
+  window.CARESITS_PHASE_C = { viewer: { uid, side: "" }, rels: [], jobs: [], names: {} };
+  window.CARESITS_THREAD = null;
+  window.CARESITS_FIND_DATA = null;
+  window.CARESITS_EXPORT_DATA = null;
+  window.CARESITS_CALENDAR = null;
+  for (const name of ["CARESITS_RENDER_HOME", "CARESITS_FAMILY_RENDER", "CARESITS_PHASE_C_RENDER", "CARESITS_THREAD_RENDER", "CARESITS_TRUST_RENDER", "CARESITS_WEEK_RENDER", "CARESITS_BIN_RENDER", "CARESITS_FIND_RENDER"]) {
+    try { window[name]?.(); } catch { /* an empty seam remains safe */ }
+  }
+}
 
 export function publishTrust(profile, card, questionnaire) {
   if (pendingTrustName) profile = { ...(profile || {}), displayName: pendingTrustName };
@@ -215,6 +280,14 @@ export function makeWriter(fs, db, uid) {
       if (r.op === "set") await fs.setDoc(docAt(r.path), data);
       else if (r.op === "update") await fs.updateDoc(docAt(r.path), data);
       else if (r.op === "merge") await fs.setDoc(docAt(r.path), data, { merge: true });
+      else if (r.op === "learningPlan") {
+        const batch = fs.writeBatch(db);
+        batch.set(docAt(r.path), data, { merge: true });
+        const profile = await fs.getDoc(docAt(r.profilePath));
+        if (profile.exists()) batch.set(docAt(r.profilePath), r.profileData, { merge: true });
+        if (r.pairPath) batch.update(docAt(r.pairPath), r.pairData);
+        await batch.commit();
+      }
       else if (r.op === "add") await fs.addDoc(colAt(r.path), data);
       else if (r.op === "delete") await fs.deleteDoc(docAt(r.path));
       else if (r.op === "binRestore") {
@@ -299,6 +372,13 @@ export function threadSeamFrom({ rels, names, msgs, uid }) {
   return { pairId: rel.id, otherName: (names || {})[other] || "", messages, plan: null, tasteUsedToday };
 }
 
+// The live pairs of a Phase C seam: the relationships the
+// pair spaces open for — contact or hired, the same gate
+// threadSeamFrom judges by just above.
+export function liveRelsOf(rels) {
+  return (rels || []).filter((r) => r.state === "contact" || r.state === "hired");
+}
+
 // The live Phase C fetch: the viewer's pairs (the members
 // array-contains query is the read fence's provable shape),
 // the open board plus the viewer's own jobs merged by id, and
@@ -316,7 +396,7 @@ export async function fetchPhaseC(fs, db, uid, side) {
   const ownJobs = await grabQuery("jobs", fs.where("familyUid", "==", uid));
   const byId = new Map();
   for (const job of [...openJobs, ...ownJobs]) byId.set(job.id, job);
-  const jobs = [...byId.values()];
+  const jobs = cleanJobListings([...byId.values()]);
   const names = {};
   for (const other of phaseCNameTargets(uid, side, rels, jobs)) {
     try {
@@ -344,21 +424,41 @@ export async function bootLive() {
   // so a named app here would never see the signed-in user (the build
   // 103 R1 fault). Every shell module resolves the default app only.
   const app = appMod.getApps().find((a) => a.name === "[DEFAULT]") || appMod.initializeApp(cfg);
-  const auth = authMod.getAuth(app);
+  const { sharedAuth } = await import("./auth-shared.js");
+  const auth = sharedAuth(authMod, app);
   const db = fs.getFirestore(app);
+  window.CARESITS_DB = { fs, db };
   return new Promise((resolve) => {
     authMod.onAuthStateChanged(auth, async (u) => {
       if (!u || u.isAnonymous) {
-        // The uid seam is a pointer, not data: clearing it on
-        // sign out deletes nothing, it only stops the device
-        // keys resolving to the previous account (F16).
-        if (typeof window !== "undefined") window.CARESITS_UID = null;
+        const previousUid = typeof window !== "undefined" ? window.CARESITS_UID : null;
+        // The uid seam is a pointer, not data. Dropping it switches
+        // all subsequent reads away from that member without deleting
+        // any of their uid-scoped records.
+        if (typeof window !== "undefined") {
+          window.CARESITS_UID = null;
+          window.CARESITS_AUTH_STATE = "signed-out";
+          window.CARESITS_ACCOUNT_READY = false;
+          delete document.documentElement.dataset.entryRole;
+          if (previousUid) { clearSessionMarkers(); resetMemberSeams(null); }
+        }
         gateSignedOut();
         resolve({ on: true, signedIn: false });
         return;
       }
       const uid = u.uid;
-      if (typeof window !== "undefined") window.CARESITS_UID = uid;
+      const previousUid = typeof window !== "undefined" ? window.CARESITS_UID : null;
+      if (typeof window !== "undefined") {
+        window.CARESITS_UID = uid;
+        window.CARESITS_AUTH_STATE = "signed-in";
+        if (previousUid !== uid) {
+          window.CARESITS_ACCOUNT_READY = false;
+          // Keep the newly chosen door role until it is saved; clear
+          // only stale session flags and the prior account's locale.
+          clearSessionMarkers({ preserveEntryRole: true, preserveLanguage: false });
+          resetMemberSeams(uid);
+        }
+      }
       const docAt = (path) => fs.doc(db, ...path.split("/"));
       const colAt = (path) => fs.collection(db, ...path.split("/"));
       window.CARESITS_WRITE = makeWriter(fs, db, uid);
@@ -398,7 +498,7 @@ export async function bootLive() {
           const merged = mergeDeepAnswers(qData.answers || {}, byPair, qData.side || profile.side || "");
           if (Object.keys(merged).length > Object.keys(qData.answers || {}).length) qData = { ...qData, answers: merged };
         } catch { /* the base map stands */ }
-        window.CARESITS_ME = { uid, side: profile.side || "", name: profile.displayName || "" };
+        window.CARESITS_ME = { uid, side: profile.side || "", name: profile.displayName || "", entryRole: "" };
         window.CARESITS_PROFILE_COMPLETE = !!(profile.displayName && q.exists());
       } catch { /* the surfaces stand in their empty states */ }
       // The entitlement record (payments chapter §3): read at boot
@@ -459,6 +559,7 @@ export async function bootLive() {
         if (stampPath) await fs.setDoc(docAt(stampPath), { lastActiveAt: fs.serverTimestamp() }, { merge: true });
       } catch { /* the stamp waits for its rules arm */ }
       let bootMsgs = [];
+      let bootAppDoc = null;
       try {
         const grab = async (path) => {
           const snap = await fs.getDocs(colAt(path));
@@ -494,32 +595,79 @@ export async function bootLive() {
           const reminderDoc = await docOr(`users/${uid}/meta/reminders`);
           const emergencyDoc = await docOr(`users/${uid}/meta/emergency`);
           const appDoc = await docOr(`users/${uid}/meta/app`);
+          bootAppDoc = appDoc;
+          let pendingRole = "";
+          try { pendingRole = sessionStorage.getItem("caresits-entry-role") || ""; } catch { /* session storage off */ }
+          const savedRole = ENTRY_ROLES.includes(appDoc && appDoc.entryRole) ? appDoc.entryRole : "";
+          const savedSide = qData.side || profile.side || "";
+          const inferredRole = savedSide === "carer" ? "career" : savedSide === "family" ? "family" : "";
+          // The role on the account wins on return. A door choice is
+          // saved only for a new account that has no role or profile side.
+          let entryRole = savedRole || inferredRole || "";
+          if (!entryRole && ENTRY_ROLES.includes(pendingRole)) {
+            entryRole = pendingRole;
+            try {
+              const saved = await window.CARESITS_WRITE("entry-role", { entryRole });
+              if (saved && saved.ok) { try { sessionStorage.removeItem("caresits-entry-role"); } catch { /* session storage off */ } }
+            } catch { /* keep this session's chosen role; retry next visit */ }
+          } else if (!savedRole && inferredRole) {
+            try { await window.CARESITS_WRITE("entry-role", { entryRole }); } catch { /* the profile side still identifies this member */ }
+          }
+          if (savedRole && pendingRole) {
+            try { sessionStorage.removeItem("caresits-entry-role"); } catch { /* session storage off */ }
+          }
+          const roleSide = entryRole === "career" ? "carer" : entryRole === "family" ? "family" : entryRole === "communicate" ? "communicate" : "";
+          const effectiveSide = roleSide || profile.side || qData.side || "";
+          window.CARESITS_ME = {
+            ...(window.CARESITS_ME || { uid }),
+            uid, side: effectiveSide, entryRole,
+            activeSide: ["family", "career", "communicate"].includes(appDoc?.activeSide) ? appDoc.activeSide : entryRole,
+            sideTours: { family: appDoc?.tourFamilyDone === true, career: appDoc?.tourCareerDone === true, communicate: appDoc?.tourCommunicateDone === true },
+            learningPlan: appDoc?.learningPlan || cardData?.learningPlan ? normaliseLearningPlan(appDoc?.learningPlan || cardData?.learningPlan) : null,
+            country: qData.country || qData.answers?.country || window.CARESITS_ME?.country || "",
+          };
+          window.CARESITS_LEARNING_PLAN = window.CARESITS_ME.learningPlan;
+          if (window.CARESITS_ME.activeSide) {
+            document.documentElement.dataset.entryRole = window.CARESITS_ME.activeSide;
+            window.CARESITS_ROLE_NAV?.(window.CARESITS_ME.activeSide);
+          } else {
+            delete document.documentElement.dataset.entryRole;
+          }
+          window.CARESITS_RENDER_HOME?.();
+          window.CARESITS_ACCOUNT_READY = true;
+          document.dispatchEvent(new CustomEvent("caresits-account-ready", { detail: { uid, entryRole, activeSide: window.CARESITS_ME.activeSide } }));
           window.CARESITS_WEEK = weekSeamFrom({ timesheets: sheets, reminderDoc, emergencyDoc });
           if (typeof window.CARESITS_WEEK_RENDER === "function") window.CARESITS_WEEK_RENDER();
           if (appDoc && appDoc.background) {
-            try { localStorage.setItem("caresits-app2-bg", JSON.stringify({ choice: appDoc.background })); } catch { /* storage off */ }
+            try { const bgKey = accountKey("caresits-app2-bg", uid); if (bgKey) localStorage.setItem(bgKey, JSON.stringify({ choice: appDoc.background })); } catch { /* storage off */ }
           }
           // The member's language rides the account beside
-          // their background (the save-forever law covers the
-          // pick as it covers the background): seed the device
-          // key from the account, and if that changes the
-          // pick, reload once into the member's own language.
-          // The seed is its own guard: after the reload the
-          // key already equals the account's, so it never
-          // loops.
+          // their background. Seed the device key, then refresh
+          // translated text in place so the first-run tour and
+          // any open questionnaire survive account restoration.
           if (appDoc && appDoc.language) {
             try {
-              if (localStorage.getItem("caresits-lang") !== appDoc.language) {
-                localStorage.setItem("caresits-lang", appDoc.language);
-                location.reload();
+              const langKey = accountKey("caresits-lang", uid);
+              if (langKey && localStorage.getItem(langKey) !== appDoc.language) {
+                localStorage.setItem(langKey, appDoc.language);
               }
             } catch { /* storage off */ }
+            // The signed-out door has no uid for the account locale.
+            // Seed its display-only session preference after account
+            // restoration; the previous member's value was cleared above.
+            try { sessionStorage.setItem("caresits-door-language", appDoc.language); } catch { /* session storage off */ }
           }
+          // The tour and questionnaire can render before auth restores
+          // the account's language key. Refresh the shell and both live
+          // overlays after the account document has settled.
+          applyI18n();
+          window.CARESITS_TOUR_REFRESH_LANGUAGE?.();
+          document.getElementById("journeyFrame")?.contentWindow?.CARESITS_REFRESH_LANGUAGE?.();
         } catch { /* the week surfaces stand in their empty states */ }
         // F15: My Profile renders from the trust seam, and the
         // seam is published here, from the member's real
         // documents, the moment the boot has read them.
-        publishTrust(profile, cardData, qData);
+        publishTrust({ ...profile, side: window.CARESITS_ME?.side || profile.side || qData.side || "" }, cardData, qData);
         // Land a finished journey still standing on this
         // device (QA b108): when the account holds no
         // questionnaire yet and a done envelope waits under
@@ -567,6 +715,11 @@ export async function bootLive() {
         // the seam carries empty lists and the designed empty
         // states stand.
         const seam = await fetchPhaseC(fs, db, uid, window.CARESITS_ME?.side || profile.side || "");
+        const sharedRel = (seam.rels || []).find((rel) => ["contact", "hired"].includes(rel.state) && rel.learningPlan);
+        if (sharedRel?.learningPlan) {
+          window.CARESITS_LEARNING_PLAN = normaliseLearningPlan(sharedRel.learningPlan);
+          window.CARESITS_ME = { ...(window.CARESITS_ME || {}), learningPlan: window.CARESITS_LEARNING_PLAN };
+        }
         window.CARESITS_PHASE_C = seam;
         if (typeof window.CARESITS_PHASE_C_RENDER === "function") window.CARESITS_PHASE_C_RENDER();
         // Leg 14: the thread seam publishes from the same
@@ -581,6 +734,13 @@ export async function bootLive() {
         // here, where the session and the documents stand,
         // and let Find re-render from it.
         try { await publishFind(); } catch { /* Find stands on its own fetch */ }
+        // The view mode decision (Ilse's ruling, 28 Oct
+        // 2026) lands here, when the boot knows both the
+        // account's saved pick (the meta/app doc read above)
+        // and whether a live pair stands (this seam's rels,
+        // judged by the boot's own live pair gate). The
+        // shell applies it across the whole app.
+        if (typeof window.CARESITS_MODE_BOOT === "function") window.CARESITS_MODE_BOOT({ accountMode: modeFromAppDoc(bootAppDoc), hasLivePair: liveRelsOf(seam.rels).length > 0 });
       } catch { /* matches and the board stand in their empty states */ }
       resolve({ on: true, signedIn: true, uid });
     });
@@ -588,20 +748,24 @@ export async function bootLive() {
 }
 
 // The signed out gate (HQ ruling on the remainder round's
-// Leg 19): a signed out entry into the shell routes back to
-// the door; the full shell never stands open signed out. A
-// deliberate Explore entry (the door's demo button, the
-// journey's Explore pick) carries the session demo marker
-// and is exempt: browsing was never gated. Only the shell
-// page carries the layout element, so only it can bounce.
+// Leg 19; fleet rule, Ilse 29 Oct 2026): a signed out entry
+// into the shell routes back to the door; the full shell
+// never stands open signed out. There is no demo or guest
+// way in: the door is sign up or sign in, always, and no
+// session marker exempts anyone. Only the shell page
+// carries the layout element, so only it can bounce.
 function gateSignedOut() {
   try {
     if (typeof document === "undefined" || !document.getElementById("layout")) return;
-    if (sessionStorage.getItem("caresits-demo") === "1") return;
   } catch { return; }
   location.href = "door.html";
 }
 
 if (typeof document !== "undefined" && !window.CARESITS_LIVE_OFF) {
+  if (!window.CARESITS_AUTH_STATE) window.CARESITS_AUTH_STATE = "loading";
+  window.CARESITS_ACCOUNT_READY = false;
+  // The files road (design of record): photo.js's upload
+  // and delete seams ride the gatekeeper from here.
+  try { installFileRoads(); } catch { /* photo.js fails soft */ }
   bootLive().catch(() => {});
 }

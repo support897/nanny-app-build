@@ -120,6 +120,12 @@ t("invites: plan create shapes the invite doc Security ruled", () => {
   assert.equal(p.path, "invites/K7P2Q9AB");
   assert.deepEqual(p.data, { familyUid: "fam1", label: "The Smiths", createdAt: "2026-10-17T00:00:00.000Z", usedBy: null });
 });
+t("invites: a family learning plan rides the private invite without child names", () => {
+  const plan = planInviteCreate({ familyUid: "fam1", code: "K7P2Q9AB", label: "Family", nowIso: "2026-10-17T00:00:00.000Z", learningPlan: { children: [{ band: "3-5y", name: "Mia", id: "private" }], styles: ["montessori"], languages: ["Spanish"], setupComplete: true } });
+  assert.deepEqual(plan.data.learningPlan.children, [{ band: "3-5y" }]);
+  assert.deepEqual(plan.data.learningPlan.styles, ["montessori"]);
+  assert.ok(!JSON.stringify(plan.data).includes("private") && !JSON.stringify(plan.data).includes("Mia"));
+});
 t("invites: plan create refuses a bad code and a signed out maker", () => {
   assert.equal(planInviteCreate({ familyUid: "f", code: "ILO0188X", nowIso: "x" }).reason, "bad-code");
   assert.equal(planInviteCreate({ familyUid: "", code: "K7P2Q9AB", nowIso: "x" }).reason, "signed-out");
@@ -137,6 +143,12 @@ t("invites: accept builds the relationship in the sealed shape, stamp moves used
   });
   assert.deepEqual(p.stamp, { usedBy: "carer9" });
   assert.equal(p.invitePath, "invites/K7P2Q9AB");
+});
+t("invites: accepting combines the family plan with carer preferences", () => {
+  const p = planInviteAccept({ code: "K7P2Q9AB", invite: { ...invite, learningPlan: { children: [{ band: "3-5y" }], styles: ["montessori"], languages: ["Spanish"], setupComplete: true } }, accepterUid: "carer9", nowIso: "2026-10-18T10:00:00.000Z", learningPlan: { styles: ["waldorf"], areas: ["music"], languages: ["English"], setupComplete: true } });
+  assert.deepEqual(p.relData.learningPlan.children, [{ band: "3-5y" }]);
+  assert.deepEqual(p.relData.learningPlan.styles, ["montessori", "waldorf"]);
+  assert.deepEqual(p.relData.learningPlan.languages, ["Spanish", "English"]);
 });
 t("invites: accept refuses a used code, your own link, a bad code and no invite", () => {
   assert.equal(planInviteAccept({ code: "K7P2Q9AB", invite: { ...invite, usedBy: "someone" }, accepterUid: "carer9", nowIso: "x" }).reason, "already-used");
@@ -208,7 +220,9 @@ globalThis.document = {
   querySelector: () => null,
   querySelectorAll: () => [],
 };
-globalThis.localStorage.setItem("caresits-home-posture", "days");
+globalThis.CARESITS_UID = "test-user-a";
+globalThis.CARESITS_ME = { uid: "test-user-a", side: "carer", entryRole: "career" };
+globalThis.localStorage.setItem("caresits-home-posture-test-user-a", "days");
 globalThis.CARESITS_FAMILY = { side: "family", children: miaLeo };
 await import("./homes.js");
 const findByClass = (node, cls, out = []) => {
@@ -216,6 +230,48 @@ const findByClass = (node, cls, out = []) => {
   for (const c of node.children || []) findByClass(c, cls, out);
   return out;
 };
+const homeText = () => {
+  const texts = [];
+  (function walk(node) { if (node.textContent) texts.push(node.textContent); for (const c of node.children || []) walk(c); })(homeRoot);
+  return texts.join(" | ");
+};
+t("home heading: signed-in entry role is shown as its own heading", () => {
+  const headings = findByClass(homeRoot, "homeRoleHeading");
+  assert.equal(headings[0]?.textContent, "Your care career");
+});
+t("carer home: profile, urgent requests and an invite-accept path replace family matching", () => {
+  const text = homeText();
+  assert.ok(text.includes("Your carer profile"));
+  assert.ok(text.includes("Urgent care requests"));
+  assert.ok(text.includes("Were you sent a link?"));
+  assert.ok(!text.includes("Make my link"));
+  assert.ok(!text.includes("Let us find the right person for your family."));
+  assert.ok(!text.includes("Find carers"));
+});
+t("communicate home: an active-side switch shows the pitch, learning setup and ideas", () => {
+  globalThis.CARESITS_UID = "test-communicate";
+  globalThis.CARESITS_ME = { uid: "test-communicate", side: "family", entryRole: "family", activeSide: "communicate" };
+  globalThis.CARESITS_RENDER_HOME();
+  const text = homeText();
+  assert.ok(text.includes("Learning & play"));
+  assert.ok(text.includes("Shared calendar"));
+  assert.ok(text.includes("Daily activities"));
+  assert.ok(text.includes("Photo updates"));
+  assert.ok(!text.includes("Find carers"));
+  assert.ok(!text.includes("See my matches"));
+});
+t("active Careers view: sidebar changes the home without changing the saved profile side", () => {
+  globalThis.CARESITS_UID = "test-career-view";
+  globalThis.CARESITS_ME = { uid: "test-career-view", side: "family", entryRole: "family", activeSide: "career" };
+  globalThis.CARESITS_RENDER_HOME();
+  const text = homeText();
+  assert.ok(text.includes("Your carer profile"));
+  assert.ok(!text.includes("Find carers"));
+});
+globalThis.CARESITS_UID = "test-family";
+globalThis.CARESITS_ME = { uid: "test-family", side: "family", entryRole: "family" };
+globalThis.localStorage.setItem("caresits-home-posture-test-family", "days");
+globalThis.CARESITS_RENDER_HOME();
 t("week strip: the seven day labels are the day words, not journey.day.undefined", () => {
   const cells = findByClass(homeRoot, "weekCell");
   assert.equal(cells.length, 7);
@@ -271,14 +327,12 @@ t("area: the save writes the area coordinates onto the card from its postcode", 
 // member when the seam landed after the first paint, and
 // nothing re-derived it. The card now asserts nothing
 // numeric before the seam, and the seam re-renders Home.
-const treeText = () => {
-  const texts = [];
-  (function walk(node) { if (node.textContent) texts.push(node.textContent); for (const c of node.children || []) walk(c); })(homeRoot);
-  return texts.join(" | ");
-};
-globalThis.localStorage.setItem("caresits-home-posture", "finding");
-delete globalThis.localStorage._m["caresits-app2-draft"];
-delete globalThis.localStorage._m["caresits-app2-questionnaire"];
+const treeText = homeText;
+globalThis.CARESITS_UID = "test-user-a";
+globalThis.CARESITS_ME = { uid: "test-user-a", side: "family", entryRole: "family" };
+globalThis.localStorage.setItem("caresits-home-posture-test-user-a", "finding");
+delete globalThis.localStorage._m["caresits-app2-draft-test-user-a"];
+delete globalThis.localStorage._m["caresits-app2-questionnaire-test-user-a"];
 delete globalThis.CARESITS_QUESTIONS;
 await import("./homes.js?fcsrt1");
 t("F-CS-RT-1: before the seam lands, the finding home's card asserts no false 0%", () => {

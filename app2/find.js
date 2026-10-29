@@ -9,10 +9,20 @@
 import { assembleBrowse, pinLayout, kmBetween, stitchAnswers, areaCoordsFor } from "./browse.js";
 import { t as tr } from "./lang.js";
 import { frameUser } from "./account-save.js";
+import { LANGS, BANDS, DAYS } from "./questions.js";
+import { paintFileImg } from "./files.js";
 const labelText = (s) => tr({ "Perfect Pair": "find.label.perfect", "Strong Fit": "find.label.strong", "Good Fit": "find.label.good" }[s] || "find.label.good");
 const qualText = (s) => (s === "Quick profile, rough match" ? tr("find.qualifier") : s);
 const reasonText = (result, r, i) => { const code = result.reasonCodes?.[i]; return code ? tr("reason." + code) : r; };
 const gateText = (item) => (item.failedGateCode ? tr("gate." + item.failedGateCode) : item.failedGate);
+const learningReasonText = (reason) => {
+  if (!reason) return "";
+  const value = reason.type === "style" ? tr("learning.style." + reason.value)
+    : reason.type === "area" ? tr("learning.area." + reason.value) : reason.value;
+  return reason.type === "style" ? tr("learning.matchStyle", undefined, { style: value })
+    : reason.type === "area" ? tr("learning.matchArea", undefined, { area: value })
+      : tr("learning.matchLanguage", undefined, { language: value });
+};
 
 const el = (tag, cls, text) => {
   const n = document.createElement(tag);
@@ -21,13 +31,245 @@ const el = (tag, cls, text) => {
   return n;
 };
 
+const FILTER_DEFAULTS = { distanceKm: "", language: "", ageBand: "", day: "", verifiedOnly: false, auPairOnly: false, auPairInfant: false, auPairEnglish: "", auPairArrive: "", experienceYears: "", maxPay: "", transport: "", pets: "" };
+let filterState = { ...FILTER_DEFAULTS };
+let filterOwner = null;
+let moreFiltersOpen = false;
+const norm = (value) => String(value ?? "").trim().toLowerCase();
+const activeFilterCount = () => Object.entries(filterState).filter(([k, v]) => v !== "" && v !== false).length;
+const listValue = (value) => Array.isArray(value) ? value : value == null || value === "" ? [] : [value];
+
+function dayAvailable(card, day, viewerSide) {
+  const value = viewerSide === "family" ? card.availability : card.scheduleNeed;
+  if (Array.isArray(value)) return value.some((d) => norm(d) === norm(day));
+  if (!value || typeof value !== "object") return false;
+  const raw = value[day] ?? value[day.toLowerCase()] ?? value[day.toUpperCase()];
+  if (Array.isArray(raw)) return raw.length > 0;
+  if (raw && typeof raw === "object") return Object.values(raw).some((part) => Array.isArray(part) ? part.length > 0 : Boolean(part));
+  return Boolean(raw);
+}
+
+function filterCandidates(viewerDoc, candidateDocs) {
+  const familyViewer = viewerDoc.side === "family";
+  return candidateDocs.filter((doc) => {
+    if (doc.side === viewerDoc.side) return true;
+    const card = doc.card || {};
+    if (filterState.distanceKm) {
+      const km = kmBetween(viewerDoc.card || {}, card);
+      if (km == null || km > Number(filterState.distanceKm)) return false;
+    }
+    if (filterState.language) {
+      const languages = listValue(card.languages).map(norm);
+      if (!languages.includes(norm(filterState.language))) return false;
+    }
+    if (filterState.ageBand) {
+      const ages = listValue(familyViewer ? (card.agesAccepted || card.agesPreferred) : card.childrenBands).map(norm);
+      if (!ages.includes(norm(filterState.ageBand))) return false;
+    }
+    if (filterState.day && !dayAvailable(card, filterState.day, viewerDoc.side)) return false;
+    if (filterState.verifiedOnly) {
+      const checks = norm(card.checksLevel || doc.checksLevel);
+      if (!(["register", "sighted", "verified", "register verified", "document sighted"].includes(checks))) return false;
+    }
+    if (familyViewer && (filterState.auPairOnly || filterState.auPairInfant || filterState.auPairEnglish || filterState.auPairArrive)) {
+      const ap = card.auPair || {};
+      if (!ap.on) return false;
+      if (filterState.auPairInfant && !ap.infant) return false;
+      if (filterState.auPairEnglish && ["Basic", "Good", "Fluent"].indexOf(ap.english) < ["Basic", "Good", "Fluent"].indexOf(filterState.auPairEnglish)) return false;
+      if (filterState.auPairArrive && (!ap.arrival || ap.arrival > filterState.auPairArrive)) return false;
+    }
+    if (filterState.experienceYears) {
+      const years = Object.values(card.experience || {}).map(Number).filter(Number.isFinite);
+      if (!years.length || Math.max(...years) < Number(filterState.experienceYears)) return false;
+    }
+    if (filterState.maxPay) {
+      const amount = Number(familyViewer ? card.payFloor : card.payOffered);
+      if (!Number.isFinite(amount) || amount <= 0 || (familyViewer ? amount > Number(filterState.maxPay) : amount < Number(filterState.maxPay))) return false;
+    }
+    if (filterState.transport && familyViewer) {
+      if (filterState.transport === "drive" && !card.drives && !card.ownCar) return false;
+      if (filterState.transport === "ownCar" && !card.ownCar) return false;
+    }
+    if (filterState.pets && !familyViewer) {
+      if (filterState.pets === "pets" && !card.pets) return false;
+      if (filterState.pets === "noPets" && card.pets) return false;
+    }
+    return true;
+  });
+}
+
+function filterSelect(container, controls, key, label, options, value) {
+  const wrap = el("label", "findFilterField");
+  wrap.append(el("span", "findFilterLabel", label));
+  const select = el("select", "txtIn findFilterSelect");
+  select.setAttribute("aria-label", label);
+  for (const [optionValue, optionLabel] of options) {
+    const option = el("option", null, optionLabel);
+    option.value = optionValue;
+    select.append(option);
+  }
+  select.value = value ?? "";
+  wrap.append(select);
+  container.append(wrap);
+  controls[key] = select;
+  return select;
+}
+
+function filterCheck(container, controls, key, label, checked) {
+  const wrap = el("label", "findFilterCheck");
+  const input = el("input");
+  input.type = "checkbox";
+  input.checked = Boolean(checked);
+  input.setAttribute("aria-label", label);
+  wrap.append(input, el("span", null, label));
+  container.append(wrap);
+  controls[key] = input;
+  return input;
+}
+
+function openFilterSheet(root, viewerDoc, candidates, opener) {
+  document.getElementById("findFilterSheet")?.remove();
+  const wrap = el("div", "sheetWrap filterSheetWrap");
+  wrap.id = "findFilterSheet";
+  const sheet = el("section", "sheetCard filterSheetCard");
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-labelledby", "findFilterTitle");
+  const head = el("div", "findFilterHead");
+  head.append(el("h2", "findFilterTitle", tr("find.filters")));
+  const close = el("button", "ghostBtn findFilterClose", tr("find.closeFilters"));
+  close.type = "button";
+  head.append(close);
+  sheet.append(head, el("p", "findFilterHelp", tr("find.filterHelp")));
+  const controls = {};
+  const basic = el("div", "findFilterGrid");
+  const any = [["", tr("find.filterAny")]];
+  filterSelect(basic, controls, "distanceKm", tr("find.filterDistance"), [...any, ...[5, 10, 25, 50, 100].map((n) => [String(n), tr("find.filterKm", undefined, { n })])], filterState.distanceKm);
+  filterSelect(basic, controls, "language", tr("find.filterLanguage"), [...any, ...LANGS.map((v) => [v, v])], filterState.language);
+  filterSelect(basic, controls, "ageBand", tr(viewerDoc.side === "family" ? "find.filterCarerAges" : "find.filterChildAges"), [...any, ...BANDS.map((v) => [v, v])], filterState.ageBand);
+  filterSelect(basic, controls, "day", tr("find.filterDay"), [...any, ...DAYS.map((d) => [d, tr("journey.day." + d)])], filterState.day);
+  if (viewerDoc.side === "family") filterCheck(basic, controls, "verifiedOnly", tr("find.filterChecks"), filterState.verifiedOnly);
+  else filterSelect(basic, controls, "pets", tr("find.filterPets"), [...any, ["pets", tr("find.filterPetsYes")], ["noPets", tr("find.filterPetsNo")]], filterState.pets);
+  sheet.append(basic);
+  const moreButton = el("button", "quietBtn findMoreFilters", tr(moreFiltersOpen ? "find.lessFilters" : "find.moreFilters"));
+  moreButton.type = "button";
+  moreButton.setAttribute("aria-expanded", String(moreFiltersOpen));
+  const extra = el("div", "findFilterGrid findExtraFilters");
+  extra.hidden = !moreFiltersOpen;
+  if (viewerDoc.side === "family") {
+    filterCheck(extra, controls, "auPairOnly", "Au pairs only", filterState.auPairOnly);
+    filterCheck(extra, controls, "auPairInfant", "Au pair: can care for babies", filterState.auPairInfant);
+    filterSelect(extra, controls, "auPairEnglish", "Au pair: English at least", [...any, ["Basic", "Basic"], ["Good", "Good"], ["Fluent", "Fluent"]], filterState.auPairEnglish);
+    filterSelect(extra, controls, "auPairArrive", "Au pair: can arrive by", [...any, ...Array.from({ length: 12 }, (_, i) => { const d = new Date(new Date().getFullYear(), new Date().getMonth() + i, 1); return [d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"), d.toLocaleString("en", { month: "short", year: "numeric" })]; })], filterState.auPairArrive);
+    filterSelect(extra, controls, "experienceYears", tr("find.filterExperience"), [...any, ...[1, 3, 5, 10].map((n) => [String(n), n === 1 ? tr("find.filterOneYear") : tr("find.filterYears", undefined, { n })])], filterState.experienceYears);
+    filterSelect(extra, controls, "maxPay", tr("find.filterMaxPay"), [...any, ...[20, 25, 30, 40, 50].map((n) => [String(n), tr("find.filterCurrency", undefined, { n })])], filterState.maxPay);
+    filterSelect(extra, controls, "transport", tr("find.filterTransport"), [...any, ["drive", tr("find.filterDrive")], ["ownCar", tr("find.filterOwnCar")]], filterState.transport);
+    const apNote = el("p", "findFilterHelp", tr("find.auPairNote"));
+    extra.append(apNote);
+  } else {
+    filterSelect(extra, controls, "maxPay", tr("find.filterMinPay"), [...any, ...[18, 20, 25, 30, 40].map((n) => [String(n), tr("find.filterCurrency", undefined, { n })])], filterState.maxPay);
+  }
+  sheet.append(moreButton, extra);
+  moreButton.addEventListener("click", () => {
+    moreFiltersOpen = !moreFiltersOpen;
+    extra.hidden = !moreFiltersOpen;
+    moreButton.setAttribute("aria-expanded", String(moreFiltersOpen));
+    moreButton.textContent = tr(moreFiltersOpen ? "find.lessFilters" : "find.moreFilters");
+  });
+  const actions = el("div", "findFilterActions");
+  const clear = el("button", "quietBtn", tr("find.clearFilters"));
+  clear.type = "button";
+  const apply = el("button", "mainBtn", tr("find.applyFilters"));
+  apply.type = "button";
+  actions.append(clear, apply);
+  sheet.append(actions);
+  const closeSheet = () => {
+    wrap.remove();
+    document.removeEventListener("keydown", onKey);
+    opener?.focus();
+  };
+  const onKey = (event) => { if (event.key === "Escape") closeSheet(); };
+  close.addEventListener("click", closeSheet);
+  wrap.addEventListener("click", (event) => { if (event.target === wrap) closeSheet(); });
+  document.addEventListener("keydown", onKey);
+  const readControls = () => {
+    filterState = { ...FILTER_DEFAULTS };
+    for (const [key, input] of Object.entries(controls)) filterState[key] = input.type === "checkbox" ? input.checked : input.value;
+  };
+  clear.addEventListener("click", () => {
+    filterState = { ...FILTER_DEFAULTS };
+    moreFiltersOpen = false;
+    closeSheet();
+    renderFind(root, viewerDoc, candidates);
+  });
+  apply.addEventListener("click", () => {
+    readControls();
+    closeSheet();
+    renderFind(root, viewerDoc, candidates);
+  });
+  wrap.append(sheet);
+  document.body.append(wrap);
+  close.focus();
+}
+
+function trustChips(doc) {
+  const card = doc.card || {};
+  const chips = [];
+  const vf = window.CARESITS_VERIFIED && window.CARESITS_VERIFIED[doc.uid];
+  if (vf && (!vf.expiry || vf.expiry >= new Date().toISOString().slice(0, 10))) chips.push("\u2713 Verified: Blue Card");
+  const ap = card.auPair;
+  if (ap && ap.on) {
+    chips.push("Au pair");
+    if (ap.homeCountry) chips.push("From " + ap.homeCountry);
+    if (ap.arrival) { const [y, m] = ap.arrival.split("-"); chips.push("Arrives " + new Date(+y, +m - 1, 1).toLocaleString("en", { month: "short", year: "numeric" })); }
+    if (ap.infant) chips.push("Baby qualified");
+  }
+  const checks = norm(card.checksLevel || doc.checksLevel);
+  if (["register", "verified", "register verified"].includes(checks)) chips.push(tr("find.trustRegister"));
+  else if (["sighted", "document sighted"].includes(checks)) chips.push(tr("find.trustSighted"));
+  const languages = listValue(card.languages).slice(0, 2).map((v) => LANGS.find((l) => norm(l) === norm(v)) || v);
+  if (languages.length) chips.push(tr("find.trustLanguages", undefined, { n: languages.join(", ") }));
+  const reply = doc.responseTime || card.responseTime || doc.replyTime || card.replyTime;
+  if (reply) chips.push(tr("find.trustResponse", undefined, { n: reply }));
+  return chips.slice(0, 4);
+}
+
+function detailLines(doc) {
+  const card = doc.card || {};
+  const lines = [];
+  const roles = listValue(card.roles || card.role);
+  if (roles.length) lines.push(tr("find.detailRoles", undefined, { n: roles.join(", ") }));
+  const languages = listValue(card.languages).slice(0, 4).map((v) => LANGS.find((l) => norm(l) === norm(v)) || v);
+  if (languages.length) lines.push(tr("find.detailLanguages", undefined, { n: languages.join(", ") }));
+  const ages = listValue(card.agesAccepted || card.agesPreferred);
+  if (ages.length) lines.push(tr("find.detailAges", undefined, { n: ages.join(", ") }));
+  if (card.checksLevel) lines.push(tr("find.detailChecks", undefined, { n: card.checksLevel === "register" ? tr("find.trustRegister") : card.checksLevel === "sighted" ? tr("find.trustSighted") : card.checksLevel }));
+  const checksNorm = norm(card.checksLevel || doc.checksLevel);
+  if (!["register", "verified", "register verified", "sighted", "document sighted"].includes(checksNorm)) lines.push(tr("find.detailSelfReported"));
+  const availability = DAYS.filter((day) => dayAvailable(card, day, doc.side === "carer" ? "family" : "carer"));
+  if (availability.length) lines.push(tr("find.detailAvailability", undefined, { n: availability.map((day) => tr("journey.day." + day) === "journey.day." + day ? day : tr("journey.day." + day)).join(", ") }));
+  if (card.age) lines.push(tr("find.detailAge", undefined, { n: card.age }));
+  return lines;
+}
+
+// The profile's own updated stamp, month and year only:
+// honest about freshness without pretending to be a
+// last active clock (the pool carries no activity read).
+function updatedStamp(doc) {
+  const u = doc && doc.updatedAt;
+  if (!u) return "";
+  const d = u.toDate ? u.toDate() : new Date(typeof u === "number" ? u : (u.seconds ? u.seconds * 1000 : u));
+  if (!d || isNaN(d.getTime())) return "";
+  return tr("find.updated", undefined, { n: d.toLocaleString("en", { month: "short", year: "numeric" }) });
+}
+
 function cardFor(entry) {
   const { doc, result, distanceKm } = entry;
   const card = el("article", "findCard");
   const head = el("div", "findHead");
   if (doc.photoUrl) {
     const img = el("img", "findPhoto");
-    img.src = doc.photoUrl;
+    paintFileImg(img, doc.photoUrl);
     img.alt = "";
     head.append(img);
   } else {
@@ -37,16 +279,24 @@ function cardFor(entry) {
   who.append(el("h3", "findName", doc.displayName || tr("find.member")));
   const place = [doc.postcode ? tr("find.postcode", undefined, { n: doc.postcode }) : null, distanceKm != null ? tr("find.away", undefined, { n: distanceKm }) : null].filter(Boolean).join(" · ");
   who.append(el("p", "findPlace", place));
+  const stamp = updatedStamp(doc);
+  if (stamp) who.append(el("p", "findUpdated", stamp));
   head.append(who);
+  if (window.CARESITS_V2 && window.CARESITS_V2.heartButton && doc.uid) head.append(window.CARESITS_V2.heartButton(doc.uid));
   card.append(head);
-  // F14: the carer's extra photos ride under the main photo
-  // when the card carries them, as a small row of thumbs.
+  if (doc.about) card.append(el("p", "v2About", doc.about));
+  const trust = trustChips(doc);
+  if (trust.length) {
+    const row = el("div", "trustRow");
+    for (const text of trust) row.append(el("span", "trustChip", text));
+    card.append(row);
+  }
   const gallery = doc.card && Array.isArray(doc.card.gallery) ? doc.card.gallery.filter((u) => typeof u === "string" && u).slice(0, 4) : [];
   if (gallery.length) {
     const row = el("div", "galleryThumbs");
     for (const u of gallery) {
       const im = el("img", "galleryThumbSm");
-      im.src = u;
+      paintFileImg(im, u);
       im.alt = "";
       row.append(im);
     }
@@ -60,20 +310,43 @@ function cardFor(entry) {
     fit.append(el("span", "fitScore", tr("find.pairFit", undefined, { n: result.pair })));
     card.append(fit);
   }
-  const ul = el("ul", "findReasons");
-  (result.reasons || []).slice(0, 3).forEach((r, i) => ul.append(el("li", null, reasonText(result, r, i))));
-  card.append(ul);
+  const reasons = [...(result.reasons || []).slice(0, 3).map((r, i) => reasonText(result, r, i)), ...(result.learningReasons || []).map(learningReasonText)].filter(Boolean);
+  if (reasons.length) {
+    card.append(el("h4", "findWhyHeading", tr("find.whyMatch")));
+    const ul = el("ul", "findReasons");
+    for (const reason of reasons) ul.append(el("li", null, reason));
+    card.append(ul);
+  }
   if (result.qualifier) card.append(el("p", "qualLine", qualText(result.qualifier)));
-  const btn = el("button", "mainBtn findMsg", tr("find.message"));
-  btn.type = "button";
-  btn.addEventListener("click", () => {
+  const details = el("div", "findDetails");
+  details.hidden = true;
+  const lines = detailLines(doc);
+  if (lines.length) for (const line of lines) details.append(el("p", "findDetailLine", line));
+  else details.append(el("p", "findDetailLine", tr("find.detailEmpty")));
+  const revBox = el("div", "v2RevList");
+  details.append(revBox);
+  card.append(details);
+  const actions = el("div", "findActions");
+  const detailsButton = el("button", "ghostBtn findDetailsBtn", tr("find.details"));
+  detailsButton.type = "button";
+  detailsButton.setAttribute("aria-expanded", "false");
+  detailsButton.addEventListener("click", () => {
+    details.hidden = !details.hidden;
+    if (!details.hidden && !revBox.dataset.l && window.CARESITS_V2 && window.CARESITS_V2.reviewsInto) { revBox.dataset.l = "1"; window.CARESITS_V2.reviewsInto(revBox, doc.uid); }
+    detailsButton.setAttribute("aria-expanded", String(!details.hidden));
+    detailsButton.textContent = tr(details.hidden ? "find.details" : "find.hideDetails");
+  });
+  const messageButton = el("button", "mainBtn findMsg", tr("find.message"));
+  messageButton.type = "button";
+  messageButton.addEventListener("click", () => {
     if (typeof window.CARESITS_CONTACT === "function") window.CARESITS_CONTACT(doc.uid || "", doc);
   });
-  card.append(btn);
+  actions.append(detailsButton, messageButton);
+  card.append(actions);
   const quiet = el("div", "quietRow");
   const rep = el("button", "quietBtn", tr("find.report"));
   rep.type = "button";
-  rep.addEventListener("click", () => window.CARESITS_REPORT?.(doc.uid || "", { surface: "card", snapshot: { items: ["card"], text: (result.reasons || []).join(" "), title: doc.displayName || "Profile card" } }));
+  rep.addEventListener("click", () => window.CARESITS_REPORT?.(doc.uid || "", { surface: "card", snapshot: { items: ["card"], text: reasons.join(" "), title: doc.displayName || "Profile card" } }));
   const blk = el("button", "quietBtn", tr("find.block"));
   blk.type = "button";
   blk.addEventListener("click", () => window.CARESITS_BLOCK?.(doc.uid || "", card));
@@ -81,7 +354,6 @@ function cardFor(entry) {
   card.append(quiet);
   return card;
 }
-
 
 function mapCardFor(doc, entry, viewerLevel, distanceKm) {
   const card = el("article", "findCard mapCard");
@@ -99,6 +371,7 @@ function mapCardFor(doc, entry, viewerLevel, distanceKm) {
   card.append(pct);
   const ul = el("ul", "findReasons");
   (entry.result.reasons || []).slice(0, 3).forEach((r, i) => ul.append(el("li", null, reasonText(entry.result, r, i))));
+  (entry.result.learningReasons || []).forEach((reason) => ul.append(el("li", "learningMatchReason", learningReasonText(reason))));
   card.append(ul);
   if (entry.result.qualifier) card.append(el("p", "qualLine", qualText(entry.result.qualifier)));
   return card;
@@ -113,6 +386,18 @@ function mapSection(viewerDoc, candidateDocs, browse) {
   const entries = candidateDocs.filter((d) => d.side !== (viewerDoc?.side || "family")).map((doc) => ({ doc, result: null }));
   const pins = pinLayout(viewerDoc?.card || null, entries);
   const slot = el("div", "mapSlot");
+  const V2 = window.CARESITS_V2;
+  const pts = entries.map((e) => e.doc).filter((d) => d.card && d.card.latE2 != null && d.card.lngE2 != null)
+    .map((d) => ({ uid: d.uid || d.displayName, name: d.displayName || "Member", lat: d.card.latE2 / 100, lng: d.card.lngE2 / 100, doc: d }));
+  if (V2 && V2.leafletMap && window.L && pts.length) {
+    const vc = viewerDoc && viewerDoc.card && viewerDoc.card.latE2 != null ? { lat: viewerDoc.card.latE2 / 100, lng: viewerDoc.card.lngE2 / 100 } : null;
+    const ok = V2.leafletMap(panel, pts, vc, (p) => {
+      const entry = byUid.get(p.uid) || null;
+      const km = viewerDoc ? kmBetween(viewerDoc.card || {}, p.doc.card || {}) : null;
+      slot.replaceChildren(mapCardFor(p.doc, entry, viewerDoc?.level, km));
+    });
+    if (ok) { panel.classList.add("v2Real"); wrap.append(panel, slot); return wrap; }
+  }
   for (const p of pins) {
     const doc = entries.find((e) => (e.doc.uid || e.doc.displayName) === p.uid).doc;
     const pin = el("button", "mapPin", (doc.displayName || "?").slice(0, 1));
@@ -134,38 +419,78 @@ function mapSection(viewerDoc, candidateDocs, browse) {
 }
 
 const excludedUids = new Set();
+let showSaved = false;
 let lastRender = null;
 export function renderFind(root, viewerDoc, candidateDocs) {
   lastRender = { root, viewerDoc, candidateDocs };
-  candidateDocs = candidateDocs.filter((d) => !excludedUids.has(d.uid || d.displayName));
+  const owner = viewerDoc?.uid || null;
+  if (owner !== filterOwner) {
+    filterOwner = owner;
+    filterState = { ...FILTER_DEFAULTS };
+    moreFiltersOpen = false;
+  }
+  const favNow = window.CARESITS_V2 && window.CARESITS_V2.favs ? window.CARESITS_V2.favs() : new Set();
+  const visibleCandidates = candidateDocs.filter((d) => !excludedUids.has(d.uid || d.displayName) && (!showSaved || favNow.has(d.uid)));
   root.replaceChildren();
-  root.append(el("h2", "findTitle", tr("shell.find")));
+  const isCarerView = (viewerDoc && viewerDoc.side === "carer") || (!viewerDoc && window.CARESITS_V2 && window.CARESITS_V2.role() === "career");
+  root.append(el("h2", "findTitle", isCarerView ? "Jobs" : tr("shell.find")));
+  if (window.CARESITS_V2) window.CARESITS_V2.composer(root, viewerDoc || null);
   if (!viewerDoc) {
     const box = el("div", "cardIn");
     const img = el("img", "bunnyBig");
     img.src = "bunny/bunny-rest-calm.png";
     img.alt = tr("find.bunnyRest");
-    box.append(img, el("h3", null, tr("find.waitTitle")), el("p", null, tr("find.waitBody")));
+    box.append(img, el("h3", null, isCarerView ? "Finish your profile to see families" : tr("find.waitTitle")), el("p", null, isCarerView ? "Answer a few questions and we line up families who need what you offer. Looking around costs nothing, always." : tr("find.waitBody")));
     const go = el("button", "mainBtn", tr("find.startQ"));
     go.type = "button";
     go.addEventListener("click", () => document.querySelector('[data-nav="questionnaire"]')?.click());
     box.append(go);
     root.append(box);
-    root.append(el("h3", "findNearlyTitle", tr("find.nearYou")));
-    root.append(mapSection(null, candidateDocs, null));
+    root.append(el("h3", "findNearlyTitle", isCarerView ? "Families near you" : tr("find.nearYou")));
+    root.append(mapSection(null, visibleCandidates, null));
     return;
   }
-  const b = assembleBrowse(viewerDoc, candidateDocs);
+  const filteredCandidates = filterCandidates(viewerDoc, visibleCandidates);
+  const b = assembleBrowse(viewerDoc, filteredCandidates);
   const poolWord = viewerDoc.side === "family"
     ? (b.poolCount === 1 ? tr("find.pool.carer1") : tr("find.pool.carerN", undefined, { n: b.poolCount }))
     : (b.poolCount === 1 ? tr("find.pool.family1") : tr("find.pool.familyN", undefined, { n: b.poolCount }));
   const matchWord = b.shownCount === 1 ? tr("find.pool.match1") : tr("find.pool.matchN", undefined, { n: b.shownCount });
   root.append(el("p", "findPool", poolWord + " · " + matchWord));
+  root.append(el("p", "findSort", tr("find.sortLine")));
+  const toolbar = el("div", "findToolbar");
+  const filterCount = activeFilterCount();
+  const filterButton = el("button", "ghostBtn findFilterOpen", filterCount ? tr("find.filtersCount", undefined, { n: filterCount }) : tr("find.filters"));
+  filterButton.type = "button";
+  filterButton.setAttribute("aria-haspopup", "dialog");
+  filterButton.addEventListener("click", () => openFilterSheet(root, viewerDoc, visibleCandidates, filterButton));
+  const savedBtn = el("button", "ghostBtn v2SavedBtn" + (showSaved ? " on" : ""), showSaved ? "\u2665 Saved (on)" : "\u2661 Saved");
+  savedBtn.type = "button";
+  savedBtn.addEventListener("click", () => { showSaved = !showSaved; renderFind(root, viewerDoc, candidateDocs); });
+  toolbar.append(savedBtn, filterButton);
+  root.append(toolbar);
+  if (filterCount) {
+    const FILTER_CHIP_LABELS = { distanceKm: () => tr("find.filterDistance"), language: () => tr("find.filterLanguage"), ageBand: () => tr(viewerDoc.side === "family" ? "find.filterCarerAges" : "find.filterChildAges"), day: () => tr("find.filterDay"), verifiedOnly: () => tr("find.filterChecks"), pets: () => tr("find.filterPets"), auPairOnly: () => "Au pairs only", auPairInfant: () => "Au pair: can care for babies", auPairEnglish: () => "Au pair: English at least", auPairArrive: () => "Au pair: can arrive by", experienceYears: () => tr("find.filterExperience"), maxPay: () => tr(viewerDoc.side === "family" ? "find.filterMaxPay" : "find.filterMinPay"), transport: () => tr("find.filterTransport") };
+    const chipsRow = el("div", "findActiveChips");
+    for (const key of Object.keys(FILTER_DEFAULTS)) {
+      const v = filterState[key];
+      const active = typeof FILTER_DEFAULTS[key] === "boolean" ? Boolean(v) : Boolean(v);
+      if (!active) continue;
+      const chip = el("span", "findChip", (FILTER_CHIP_LABELS[key] ? FILTER_CHIP_LABELS[key]() : key) + (typeof v === "string" && v ? ": " + v : "") + "  ");
+      const x = el("button", "findChipX", "×");
+      x.type = "button";
+      x.setAttribute("aria-label", tr("find.removeFilter"));
+      x.addEventListener("click", () => { filterState = { ...filterState, [key]: FILTER_DEFAULTS[key] }; renderFind(root, viewerDoc, candidateDocs); });
+      chip.append(x);
+      chipsRow.append(chip);
+    }
+    root.append(chipsRow);
+  }
   const toggle = el("div", "viewToggle");
   const listBtn = el("button", "chip on", tr("find.list"));
   const mapBtn = el("button", "chip", tr("find.map"));
   listBtn.type = "button"; mapBtn.type = "button";
-  const mapWrap = mapSection(viewerDoc, candidateDocs, b);
+  const mapWrap = mapSection(viewerDoc, filteredCandidates, b);
   mapWrap.hidden = true;
   listBtn.addEventListener("click", () => { mapWrap.hidden = true; listBtn.classList.add("on"); mapBtn.classList.remove("on"); });
   mapBtn.addEventListener("click", () => { mapWrap.hidden = false; mapBtn.classList.add("on"); listBtn.classList.remove("on"); });
@@ -177,6 +502,20 @@ export function renderFind(root, viewerDoc, candidateDocs) {
     img.src = "bunny/bunny-rest-calm.png";
     img.alt = tr("find.bunnyRest");
     box.append(img, el("h3", null, tr("find.noneTitle")), el("p", null, tr("find.noneBody")));
+    const actionText = filterCount ? tr("find.clearFilters") : viewerDoc.side === "family" ? tr("find.emptyUrgent") : tr("find.emptyWiden");
+    const action = el("button", "mainBtn findEmptyAction", actionText);
+    action.type = "button";
+    action.addEventListener("click", () => {
+      if (filterCount) {
+        filterState = { ...FILTER_DEFAULTS };
+        renderFind(root, viewerDoc, candidateDocs);
+      } else if (viewerDoc.side === "family") {
+        window.CARESITS_NAV?.("board");
+      } else {
+        openFilterSheet(root, viewerDoc, visibleCandidates, filterButton);
+      }
+    });
+    box.append(action);
     root.append(box);
   }
   const list = el("div", "findList");
@@ -197,8 +536,24 @@ export function renderFind(root, viewerDoc, candidateDocs) {
     const nl = el("div", "findList");
     for (const nItem of b.nearly) {
       const c = el("article", "findCard nearly");
-      c.append(el("h3", "findName", nItem.doc.displayName || tr("find.member")));
-      c.append(el("p", "findPlace", nItem.doc.postcode ? tr("find.postcode", undefined, { n: nItem.doc.postcode }) : ""));
+      const head = el("div", "findHead");
+      if (nItem.doc.photoUrl) {
+        const photo = el("img", "findPhoto");
+        paintFileImg(photo, nItem.doc.photoUrl);
+        photo.alt = "";
+        head.append(photo);
+      } else head.append(el("div", "findInitial", (nItem.doc.displayName || "?").slice(0, 1)));
+      const who = el("div", "findWho");
+      who.append(el("h3", "findName", nItem.doc.displayName || tr("find.member")));
+      who.append(el("p", "findPlace", nItem.doc.postcode ? tr("find.postcode", undefined, { n: nItem.doc.postcode }) : ""));
+      head.append(who);
+      c.append(head);
+      const trust = trustChips(nItem.doc);
+      if (trust.length) {
+        const chips = el("div", "trustRow");
+        for (const text of trust) chips.append(el("span", "trustChip", text));
+        c.append(chips);
+      }
       c.append(el("p", "findGate", tr("find.gateLine", undefined, { g: gateText(nItem) })));
       nl.append(c);
     }
@@ -231,9 +586,26 @@ export async function fetchFindData(fsMod, db, uid) {
     return doc;
   };
   const viewer = await withAnswers(uid, mine.data());
-  const snap = await fsMod.getDocs(fsMod.query(fsMod.collection(db, "profiles"), fsMod.limit(100)));
-  const candidates = [];
-  for (const d of snap.docs) { if (d.id !== uid) candidates.push(await withAnswers(d.id, d.data())); }
+  // Scale: ask only for people in the same region (first two digits of the
+  // postcode), the other side, 40 at most. Few people yet? widen to anyone.
+  const mineData = mine.data();
+  const pc = String(mineData.postcode || (mineData.card && mineData.card.postcode) || "").replace(/\D/g, "");
+  const wantSide = mineData.side === "family" ? "carer" : "family";
+  const ok = (d) => d.id !== uid && (d.data().side || wantSide) !== mineData.side;
+  let docs = [];
+  if (pc.length >= 2) {
+    const lo = pc.slice(0, 2);
+    try {
+      const q = await fsMod.getDocs(fsMod.query(fsMod.collection(db, "profiles"), fsMod.where("postcode", ">=", lo), fsMod.where("postcode", "<", lo + "\uffff"), fsMod.limit(120)));
+      docs = q.docs.filter(ok);
+    } catch { docs = []; }
+  }
+  if (docs.length < 5) {
+    const all = await fsMod.getDocs(fsMod.query(fsMod.collection(db, "profiles"), fsMod.limit(100)));
+    docs = all.docs.filter(ok);
+  }
+  docs = docs.slice(0, 40);
+  const candidates = await Promise.all(docs.map((d) => withAnswers(d.id, d.data())));
   return { viewer, candidates };
 }
 
@@ -255,7 +627,7 @@ async function bootFind() {
     // The same frame rule as the journey save (QA b104 ROOT A):
     // judge the user after the session restore settles, never
     // on a synchronous read in a still-restoring frame.
-    const user = await frameUser(authMod.getAuth(app));
+    const user = await frameUser((await import("./auth-shared.js")).sharedAuth(authMod, app));
     if (!user || user.isAnonymous) { renderFind(root, null, []); return; }
     const db = fsMod.getFirestore(app);
     const fd = await fetchFindData(fsMod, db, user.uid);

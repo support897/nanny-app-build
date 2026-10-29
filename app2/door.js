@@ -9,7 +9,32 @@ import { firebaseConfig } from "./firebase-config.js";
 const $ = (s) => document.querySelector(s);
 import { t as tr, applyI18n } from "./lang.js";
 applyI18n();
+const syncNextDirection = () => { const next = $("#nextBtn"); if (next) next.textContent = document.documentElement.dir === "rtl" ? "←" : "→"; };
+syncNextDirection();
 const msg = (t) => { $("#doorMsg").textContent = t || ""; };
+const ENTRY_ROLE_SESSION_KEY = "caresits-entry-role";
+const ENTRY_ROLES = new Set(["career", "family", "communicate"]);
+const ROLE_HEADING_KEYS = {
+  career: "door.roleCareerHeading",
+  family: "door.roleFamilyHeading",
+  communicate: "door.roleCommunicateHeading",
+};
+let selectedRole = null;
+function chooseRole(role, remember = true) {
+  if (!ENTRY_ROLES.has(role)) return;
+  selectedRole = role;
+  document.documentElement.dataset.entryRole = role;
+  $("#entryRoleHeading").textContent = tr(ROLE_HEADING_KEYS[role]);
+  $("#entryRoleHeading").hidden = false;
+  $("#roleChooser").hidden = true;
+  $("#authDoor").hidden = false;
+  document.querySelectorAll(".roleOption").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.role === role));
+  });
+  if (remember) {
+    try { sessionStorage.setItem(ENTRY_ROLE_SESSION_KEY, role); } catch { /* session storage off */ }
+  }
+}
 let accounts = null;
 // The email join holds the walk in until it knows whether the
 // sign in created the account: a creation is announced out loud
@@ -61,6 +86,23 @@ async function layer() {
 }
 layer().catch(() => {});
 
+document.querySelectorAll(".roleOption").forEach((button) => {
+  button.addEventListener("click", () => chooseRole(button.dataset.role));
+});
+$("#changeRoleBtn").addEventListener("click", () => {
+  selectedRole = null;
+  try { sessionStorage.removeItem(ENTRY_ROLE_SESSION_KEY); } catch { /* storage off */ }
+  delete document.documentElement.dataset.entryRole;
+  $("#authDoor").hidden = true;
+  $("#entryRoleHeading").hidden = true;
+  $("#roleChooser").hidden = false;
+  document.querySelectorAll(".roleOption").forEach((button) => button.setAttribute("aria-pressed", "false"));
+});
+try {
+  const rememberedRole = sessionStorage.getItem(ENTRY_ROLE_SESSION_KEY);
+  if (rememberedRole) chooseRole(rememberedRole, false);
+} catch { /* session storage off */ }
+
 $("#nextBtn").addEventListener("click", () => {
   const email = $("#emailIn").value.trim();
   if (!email || !email.includes("@")) { msg(tr("door.badEmail")); return; }
@@ -89,8 +131,10 @@ $("#joinBtn").addEventListener("click", async () => {
     location.href = "index.html";
   } catch (e) {
     joinHold = false;
-    const noNet = e && (e.code === "auth/network-request-failed" || e.code === "auth/timeout");
-    msg(tr(noNet ? "door.noNet" : "door.mismatch"));
+    const code = e && e.code;
+    const noNet = code === "auth/network-request-failed" || code === "auth/timeout";
+    const badPassword = ["auth/wrong-password", "auth/invalid-credential", "auth/user-not-found"].includes(code);
+    msg(tr(noNet ? "door.noNet" : badPassword ? "door.mismatch" : "door.fail"));
   }
 });
 $("#googleBtn").addEventListener("click", async () => { msg(tr("door.working")); try { const a = await layerFast(); const cred = await a.signInGoogle(); if (cred && cred.user) walkIn(); } catch { msg(tr("door.doorFail")); } });
@@ -105,10 +149,4 @@ $("#forgotBtn").addEventListener("click", async () => {
     await authMod.sendPasswordResetEmail(authMod.getAuth(app), email);
     msg(tr("door.resetSent"));
   } catch { msg(tr("door.resetFail")); }
-});
-$("#demoBtn").addEventListener("click", () => {
-  // The demo entry is deliberate: it carries the session marker
-  // the shell's signed out gate exempts (browsing was never gated).
-  try { sessionStorage.setItem("caresits-demo", "1"); } catch { /* storage off */ }
-  location.href = "index.html";
 });

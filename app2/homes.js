@@ -1,18 +1,26 @@
 // Caresitters app2 — the two homes (Ilse's commission,
 // 17 Oct 2026, from her approved visuals at
-// next-phase/homes/). Home carries two postures behind one
-// small switch: Finding care (find, finish the questions, top
-// matches, urgent) and Our days (the kids, a day planned from
-// what they love, the family connect link, the shared
-// shopping list, requests). The pick is remembered on the
-// device; the first posture is Our days when the viewer
-// already has a live pair, Finding care otherwise. Every plan
-// is made by the pure planners (activities, invites,
-// shopping, calendar-actions); this file only renders and
-// wires the writes the live layer already routes.
-import { t as tr } from "./lang.js";
-import { doneKey, draftKey } from "./storage-keys.js";
-import { planDay, planWeek, mondayOfISO, INTERESTS } from "./activities.js";
+// next-phase/homes/). Home carries two postures: Finding
+// care (find, finish the questions, top matches, urgent)
+// and Our days (the kids, a day planned from what they
+// love, the family connect link, the shared shopping list,
+// requests). The posture is the app's whole view mode
+// (Ilse's ruling, 28 Oct 2026): it is switched from the
+// side bar menu or Settings, never from a switch on the
+// home page, and it is saved on the account. This file
+// reads the shell's published mode; before the shell's
+// seam stands, a legacy device posture pick still means
+// what it meant, and the first posture is Connected when
+// the viewer already has a live pair, Finding care
+// otherwise. Every plan is made by the pure planners
+// (activities, invites, shopping, calendar-actions); this
+// file only renders and wires the writes the live layer
+// already routes.
+import { t as tr, learningActivityCopy } from "./lang.js";
+import { modeFromLegacyPosture } from "./mode.js";
+import { accountKey, doneKey, draftKey } from "./storage-keys.js";
+import { planDay, planWeek, mondayOfISO, INTERESTS, LEARNING_AGE_BANDS, LEARNING_AREAS, LEARNING_STYLES, normaliseLearningPlan, learningBandForAge, LEARNING_ACTIVITY_BANK, suggestLearningActivities, learningVocabulary } from "./activities.js";
+import { LANGS } from "./questions.js";
 import { repairChild, ageText, todayLineText } from "./family.js";
 import { assembleBrowse } from "./browse.js";
 import { FAMILY_PAGES, CARER_PAGES } from "./questions.js";
@@ -62,7 +70,7 @@ function myName() {
   // (HQ ruling on Leg 3 Note 2): on a shared device, a demo
   // never greets with the last person's name. The name renders
   // in the tour itself and inside the signed in account world.
-  if (m && m.uid) { try { return localStorage.getItem("caresits-name") || ""; } catch { return ""; } }
+  if (m && m.uid) { try { return localStorage.getItem(accountKey("caresits-name", m.uid)) || ""; } catch { return ""; } }
   return "";
 }
 function pairs() {
@@ -88,13 +96,23 @@ function myChildren() {
   const fam = window.CARESITS_FAMILY || {};
   return (fam.children || []).map(repairChild);
 }
-function readJson(key) { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; } }
+function readJson(key) { if (!key) return null; try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; } }
 
-const state = { posture: null, shopItems: null, decided: new Set(), linkMsg: "", openMsg: "" };
+const state = { shopItems: null, decided: new Set(), linkMsg: "", openMsg: "", uid: null };
 
-function defaultPosture() {
-  try { const saved = localStorage.getItem(POSTURE_KEY); if (saved === "finding" || saved === "days") return saved; } catch { /* storage off */ }
-  return hasLivePair() ? "days" : "finding";
+// The whole view mode (Ilse's ruling, 28 Oct 2026): the
+// shell owns the pick and publishes it on its seam (the
+// account choice, read back at boot). Before the seam
+// stands, a legacy device posture pick still means what it
+// meant ("days" was the daily home), and before any pick
+// the standing default stands: Connected when a live pair
+// exists, else Finding. The pair judgement is this file's
+// own hasLivePair, over the boot's Phase C seam.
+function currentMode() {
+  const seam = (typeof window !== "undefined" && window.CARESITS_MODE_STATE) || null;
+  if (seam && (seam.mode === "finding" || seam.mode === "connected")) return seam.mode;
+  try { const key = accountKey(POSTURE_KEY); const legacy = modeFromLegacyPosture(key ? localStorage.getItem(key) : null); if (legacy) return legacy; } catch { /* storage off */ }
+  return hasLivePair() ? "connected" : "finding";
 }
 
 // ---------- shared bits ----------
@@ -108,6 +126,9 @@ function greeting(leadKey, leadVars) {
   const h = new Date().getHours();
   const part = h < 12 ? "" : h < 17 ? "Aft" : "Eve";
   const helloKey = "homes.hello" + part + (name ? "Name" : "");
+  const currentMember = me();
+  const roleHeading = { career: "homes.roleCareer", family: "homes.roleFamily", communicate: "homes.roleCommunicate" }[currentMember?.activeSide || currentMember?.entryRole];
+  if (roleHeading) wrap.append(el("p", "homeRoleHeading", tr(roleHeading)));
   wrap.append(el("h1", "homeHello", tr(helloKey, undefined, name ? { name } : undefined)));
   wrap.append(el("p", "lead", tr(leadKey, undefined, leadVars)));
   const tl = el("p", "todayLine");
@@ -126,28 +147,12 @@ function guideLine(key) {
   row.append(img, el("p", "guideText", tr(key)));
   return row;
 }
-function postureSwitch(current) {
-  const row = el("div", "postureRow");
-  const mk = (id, key) => {
-    const b = el("button", "postureBtn" + (current === id ? " on" : ""), tr(key));
-    b.type = "button";
-    b.addEventListener("click", () => {
-      state.posture = id;
-      try { localStorage.setItem(POSTURE_KEY, id); } catch { /* storage off */ }
-      renderHome();
-    });
-    return b;
-  };
-  row.append(mk("finding", "shell.finding"), mk("days", "homes.daysTab"));
-  return row;
-}
 
 // ---------- FINDING HOME ----------
 function findingHome(root) {
   const m = me();
   const firstPair = pairs()[0];
   root.append(greeting("homes.findingLead"));
-  root.append(postureSwitch("finding"));
 
   // Find card: the postcode on file, then the two doors.
   const draft = readJson(draftKey());
@@ -364,7 +369,7 @@ function linkCard() {
     let code = "";
     const hook = window.CARESITS_HOMES || {};
     if (hook.invite && hook.invite.code) code = hook.invite.code;
-    if (!code) { try { code = localStorage.getItem(INVITE_KEY) || ""; } catch { code = ""; } }
+    if (!code) { try { const key = accountKey(INVITE_KEY, m?.uid); code = key ? localStorage.getItem(key) || "" : ""; } catch { code = ""; } }
     if (code && isCode(code)) {
       card.append(el("p", "linkCode", inviteLinkText(code)));
       const row = el("div", "homeBtnRow");
@@ -380,12 +385,14 @@ function linkCard() {
       card.append(row);
     } else {
       const mk = el("button", "mainBtn", tr("homes.makeLink")); mk.type = "button";
-      mk.addEventListener("click", () => {
+      mk.addEventListener("click", async () => {
         if (!m || !m.uid) { state.linkMsg = tr("homes.codeBad"); renderHome(); return; }
-        const plan = planInviteCreate({ familyUid: m.uid, code: makeCode(), label: myName(), nowIso: nowIso() });
+        const plan = planInviteCreate({ familyUid: m.uid, code: makeCode(), label: myName(), nowIso: nowIso(), learningPlan: m.learningPlan || window.CARESITS_LEARNING_PLAN });
         if (!plan.ok) { state.linkMsg = tr("homes.codeBad"); renderHome(); return; }
-        write(plan.kind, { path: plan.path, data: plan.data });
-        try { localStorage.setItem(INVITE_KEY, plan.code); } catch { /* storage off */ }
+        mk.disabled = true;
+        const result = await write(plan.kind, { path: plan.path, data: plan.data });
+        if (!result?.ok) { state.linkMsg = tr("homes.linkSaveFailed"); renderHome(); return; }
+        try { const key = accountKey(INVITE_KEY, m?.uid); if (key) localStorage.setItem(key, plan.code); } catch { /* storage off */ }
         state.linkMsg = "";
         renderHome();
       });
@@ -411,11 +418,18 @@ function linkCard() {
     if (typeof window.CARESITS_INVITE_LOOKUP === "function") { try { invite = await window.CARESITS_INVITE_LOOKUP(code); } catch { invite = null; } }
     if (!invite && window.CARESITS_HOMES && typeof window.CARESITS_HOMES.inviteByCode === "function") invite = window.CARESITS_HOMES.inviteByCode(code);
     if (!invite && window.CARESITS_INVITES) invite = window.CARESITS_INVITES[code] || null;
-    const plan = planInviteAccept({ code, invite, accepterUid: uid, nowIso: nowIso() });
+    const plan = planInviteAccept({ code, invite, accepterUid: uid, nowIso: nowIso(), learningPlan: me()?.learningPlan });
     if (!plan.ok) { state.openMsg = tr("homes.codeBad"); renderHome(); return; }
-    write(plan.kind, { relPath: plan.relPath, relData: plan.relData, invitePath: plan.invitePath, stamp: plan.stamp });
+    const result = await write(plan.kind, { relPath: plan.relPath, relData: plan.relData, invitePath: plan.invitePath, stamp: plan.stamp });
+    if (!result?.ok) { state.openMsg = tr("homes.codeBad"); renderHome(); return; }
+    if (plan.relData.learningPlan) {
+      const shared = normaliseLearningPlan(plan.relData.learningPlan);
+      window.CARESITS_LEARNING_PLAN = shared;
+      if (me()) window.CARESITS_ME = { ...me(), learningPlan: shared };
+    }
     state.openMsg = tr("homes.connectedOk");
     renderHome();
+    window.CARESITS_SHOW_CONNECTED_PROMPT?.(plan.pairId);
   });
   row.append(input, go);
   open.append(row);
@@ -547,7 +561,6 @@ function shoppingCard() {
 function daysHome(root) {
   const firstPair = pairs()[0];
   root.append(greeting(firstPair && firstPair.otherName ? "homes.daysLeadName" : "homes.daysLead", firstPair && firstPair.otherName ? { name: firstPair.otherName } : undefined));
-  root.append(postureSwitch("days"));
   root.append(kidsCard());
   root.append(todayCard());
   root.append(weekCard());
@@ -558,12 +571,367 @@ function daysHome(root) {
   root.append(guideLine("homes.guideDays"));
 }
 
+function entryRole() {
+  const m = me() || {};
+  if (["family", "career", "communicate"].includes(m.activeSide)) return m.activeSide;
+  if (m.entryRole === "communicate" || m.side === "communicate") return "communicate";
+  if (m.entryRole === "career" || m.side === "carer") return "career";
+  return "family";
+}
+
+function careerHome(root) {
+  root.append(greeting("homes.careerLead"));
+  const profile = el("section", "cardIn homeCard");
+  profile.append(el("h2", "findTitle", tr("homes.careerProfileTitle")));
+  profile.append(el("p", "homeBody", tr("homes.careerProfileBody")));
+  const status = window.CARESITS_PROFILE_COMPLETE ? tr("homes.careerProfileDone") : tr("homes.careerProfileStart");
+  profile.append(el("p", "homeBody homeWarm", status));
+  const questionnaire = el("button", "mainBtn", tr("homes.careerQuestionnaire"));
+  questionnaire.type = "button";
+  questionnaire.addEventListener("click", () => navTo("questionnaire"));
+  profile.append(questionnaire);
+  root.append(profile);
+
+  const jobs = el("section", "cardIn homeCard homeUrgent");
+  jobs.append(el("h2", "findTitle", tr("homes.careerJobsTitle")));
+  jobs.append(el("p", "homeBody", tr("homes.careerJobsBody")));
+  const board = el("button", "mainBtn", tr("homes.careerJobsOpen"));
+  board.type = "button";
+  board.addEventListener("click", () => navTo("board"));
+  jobs.append(board);
+  root.append(jobs);
+  root.append(linkCard());
+  root.append(guideLine("homes.careerGuide"));
+}
+
+function learningPlanKey() { return accountKey("caresits-learning-plan-draft"); }
+function saveLearningDraft(plan) {
+  const clean = normaliseLearningPlan({ ...plan, updatedAt: new Date().toISOString() });
+  const key = learningPlanKey();
+  try { if (key) localStorage.setItem(key, JSON.stringify(clean)); } catch { /* private storage is optional */ }
+  window.CARESITS_LEARNING_PLAN = clean;
+  if (window.CARESITS_ME) window.CARESITS_ME = { ...window.CARESITS_ME, learningPlan: clean };
+  return clean;
+}
+function initialLearningPlan() {
+  const stored = readJson(learningPlanKey());
+  const shared = window.CARESITS_LEARNING_PLAN || window.CARESITS_ME?.learningPlan;
+  const pairPlan = (window.CARESITS_PHASE_C?.rels || []).find((rel) => ["contact", "hired"].includes(rel.state) && rel.learningPlan)?.learningPlan;
+  let initial;
+  if (pairPlan) initial = normaliseLearningPlan(pairPlan);
+  else if (shared) initial = normaliseLearningPlan(shared);
+  else if (stored) initial = normaliseLearningPlan(stored);
+  else {
+    const kids = myChildren();
+    initial = normaliseLearningPlan({ children: kids.map((kid) => ({ band: learningBandForAge(kid.ageYears) })) });
+  }
+  window.CARESITS_LEARNING_PLAN = initial;
+  if (window.CARESITS_ME) window.CARESITS_ME = { ...window.CARESITS_ME, learningPlan: initial };
+  return initial;
+}
+function persistLearningPlan(plan) {
+  const clean = saveLearningDraft(plan);
+  const rels = window.CARESITS_PHASE_C?.rels || [];
+  const pair = rels.find((rel) => ["contact", "hired"].includes(rel.state));
+  const pairId = pair?.id || "";
+  const save = window.CARESITS_WRITE;
+  if (typeof save === "function") {
+    Promise.resolve(save("learning-plan", { plan: clean, pairId })).then((result) => {
+      if (result && result.ok && pairId) {
+        window.CARESITS_LEARNING_PLAN = clean;
+        window.CARESITS_RENDER_HOME?.();
+      }
+    }).catch(() => {});
+  }
+  return clean;
+}
+function learningChoiceRow(items, values, keyPrefix, onChange) {
+  const row = el("div", "chipRow learningChoices");
+  for (const item of items) {
+    const id = typeof item === "string" ? item : item.id;
+    const label = typeof item === "string" ? tr("learning." + keyPrefix + "." + item) : tr(item.key);
+    const button = el("button", "chipBtn" + (values.includes(id) ? " on" : ""), label);
+    button.type = "button";
+    button.setAttribute?.("aria-pressed", String(values.includes(id)));
+    button.addEventListener("click", () => onChange(id));
+    row.append(button);
+  }
+  return row;
+}
+function learningSetupCard() {
+  let plan = initialLearningPlan();
+  const card = el("section", "cardIn homeCard learningCard");
+  card.id = "learningSetupCard";
+  card.append(el("h2", "findTitle", tr("learning.title")));
+  card.append(el("p", "homeBody", tr("learning.lead")));
+  if (!plan.setupComplete) {
+    const step = plan.step;
+    const stepName = ["learning.stepAge", "learning.stepAreas", "learning.stepStyle"][step];
+    card.append(el("p", "learningStep", tr("learning.step", undefined, { n: step + 1 })), el("h3", "findName", tr(stepName)));
+    if (step === 0) {
+      card.append(el("p", "findPlace", tr("learning.ageHelp")));
+      const list = el("div", "learningAgeList");
+      if (!plan.children.length) plan.children = [{ band: "" }];
+      const renderAges = () => {
+        list.replaceChildren();
+        plan.children.forEach((child, index) => {
+          const row = el("label", "learningAgeRow");
+          const name = el("span", "learningChildLabel", tr("learning.child", undefined, { n: index + 1 }));
+          const select = el("select", "txtIn");
+          select.setAttribute?.("aria-label", tr("learning.childAge", undefined, { n: index + 1 }));
+          const blank = el("option", null, tr("learning.chooseAge")); blank.value = ""; select.append(blank);
+          for (const band of LEARNING_AGE_BANDS) { const option = el("option", null, tr(band.key)); option.value = band.id; select.append(option); }
+          select.value = child.band || "";
+          select.addEventListener("change", () => {
+            plan.children[index] = { band: select.value };
+            plan = saveLearningDraft(plan);
+          });
+          row.append(name, select);
+          if (plan.children.length > 1) {
+            const remove = el("button", "quietBtn", tr("learning.removeChild"));
+            remove.type = "button";
+            remove.addEventListener("click", () => {
+              plan.children.splice(index, 1);
+              plan = saveLearningDraft(plan);
+              renderAges();
+            });
+            row.append(remove);
+          }
+          list.append(row);
+        });
+      };
+      renderAges();
+      const add = el("button", "quietBtn learningAdd", tr("learning.addChild"));
+      add.type = "button";
+      add.addEventListener("click", () => {
+        plan.children.push({ band: "" });
+        plan = saveLearningDraft(plan);
+        renderAges();
+      });
+      card.append(list, add);
+    } else if (step === 1) {
+      card.append(el("p", "findPlace", tr("learning.optional")));
+      card.append(learningChoiceRow(LEARNING_AREAS, plan.areas, "area", (id) => {
+        plan.areas = plan.areas.includes(id) ? plan.areas.filter((v) => v !== id) : [...plan.areas, id];
+        plan = saveLearningDraft(plan);
+        window.CARESITS_RENDER_HOME?.();
+      }));
+    } else {
+      card.append(el("p", "findPlace", tr("learning.optional")));
+      card.append(el("p", "learningSubhead", tr("learning.stylesTitle")));
+      card.append(learningChoiceRow(LEARNING_STYLES, plan.styles, "style", (id) => {
+        plan.styles = plan.styles.includes(id) ? plan.styles.filter((v) => v !== id) : [...plan.styles, id];
+        plan = saveLearningDraft(plan);
+        window.CARESITS_RENDER_HOME?.();
+      }));
+      card.append(el("p", "learningSubhead", tr("learning.languagesTitle")));
+      const languageOptions = [...new Set([...LANGS, "Cantonese", "Other"])];
+      const langRow = el("div", "chipRow learningChoices");
+      for (const language of languageOptions) {
+        const selected = plan.languages.includes(language);
+        const button = el("button", "chipBtn" + (selected ? " on" : ""), language === "Other" ? tr("learning.other") : language);
+        button.type = "button";
+        button.setAttribute?.("aria-pressed", String(selected));
+        button.addEventListener("click", () => {
+          plan.languages = selected ? plan.languages.filter((v) => v !== language) : [...plan.languages, language];
+          plan = saveLearningDraft(plan);
+          window.CARESITS_RENDER_HOME?.();
+        });
+        langRow.append(button);
+      }
+      card.append(langRow);
+      if (plan.languages.includes("Other")) {
+        const other = el("input", "txtIn");
+        other.placeholder = tr("learning.otherLanguagePh");
+        other.value = plan.otherLanguage;
+        other.addEventListener("input", () => { plan.otherLanguage = other.value; plan = saveLearningDraft(plan); });
+        card.append(other);
+      }
+    }
+    const actions = el("div", "homeBtnRow learningActions");
+    if (step > 0) {
+      const back = el("button", "ghostBtn", tr("learning.back"));
+      back.type = "button";
+      back.addEventListener("click", () => { plan = persistLearningPlan({ ...plan, step: step - 1, setupComplete: false }); window.CARESITS_RENDER_HOME?.(); });
+      actions.append(back);
+    }
+    const skip = el("button", "ghostBtn", tr("learning.skip"));
+    skip.type = "button";
+    skip.addEventListener("click", () => {
+      const last = step === 2;
+      plan = persistLearningPlan({ ...plan, step: last ? 2 : step + 1, setupComplete: last });
+      window.CARESITS_RENDER_HOME?.();
+    });
+    const next = el("button", "mainBtn", tr(step === 2 ? "learning.finish" : "learning.continue"));
+    next.type = "button";
+    next.addEventListener("click", () => {
+      const last = step === 2;
+      plan = persistLearningPlan({ ...plan, step: last ? 2 : step + 1, setupComplete: last });
+      window.CARESITS_RENDER_HOME?.();
+    });
+    actions.append(skip, next);
+    card.append(actions);
+  } else {
+    const summary = [];
+    const ages = plan.children.map((child) => LEARNING_AGE_BANDS.find((band) => band.id === child.band)).filter(Boolean).map((band) => tr(band.key));
+    if (ages.length) summary.push(ages.join(", "));
+    if (plan.areas.length) summary.push(plan.areas.map((id) => tr("learning.area." + id)).join(", "));
+    if (plan.styles.length) summary.push(plan.styles.map((id) => tr("learning.style." + id)).join(", "));
+    if (plan.languages.length) summary.push(plan.languages.join(", "));
+    card.append(el("p", "homeBody", summary.join(" · ") || tr("learning.noChoices")));
+    const edit = el("button", "ghostBtn", tr("learning.edit"));
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      plan = persistLearningPlan({ ...plan, step: 0, setupComplete: false });
+      window.CARESITS_RENDER_HOME?.();
+    });
+    card.append(edit);
+  }
+  return card;
+}
+
+const FAVOURITES_KEY = "caresits-learning-favourites";
+const IDEA_OFFSET_KEY = "caresits-learning-idea-offset";
+function readFavourites() {
+  const saved = readJson(accountKey(FAVOURITES_KEY));
+  return Array.isArray(saved) ? [...new Set(saved.filter((id) => typeof id === "string"))] : [];
+}
+function writeFavourites(ids) {
+  const key = accountKey(FAVOURITES_KEY);
+  try { if (key) localStorage.setItem(key, JSON.stringify([...new Set(ids)])); } catch { /* private storage is optional */ }
+}
+function currentIdeaOffset() {
+  const saved = readJson(accountKey(IDEA_OFFSET_KEY));
+  return saved?.day === todayISO() && Number.isInteger(saved.offset) ? saved.offset : 0;
+}
+function saveIdeaOffset(offset) {
+  const key = accountKey(IDEA_OFFSET_KEY);
+  try { if (key) localStorage.setItem(key, JSON.stringify({ day: todayISO(), offset })); } catch { /* private storage is optional */ }
+}
+function learningIdeasCard() {
+  const plan = initialLearningPlan();
+  const card = el("section", "cardIn homeCard learningCard");
+  card.id = "learningIdeasCard";
+  card.append(el("h2", "findTitle", tr("learning.ideasTitle")));
+  const ageBands = [...new Set(plan.children.map((child) => child.band).filter(Boolean))];
+  if (!ageBands.length) {
+    card.append(el("p", "homeBody", tr("learning.ageNeeded")));
+    const edit = el("button", "ghostBtn", tr("learning.edit"));
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      const current = initialLearningPlan();
+      persistLearningPlan({ ...current, step: 0, setupComplete: false });
+      window.CARESITS_RENDER_HOME?.();
+    });
+    card.append(edit);
+    return card;
+  }
+  const offset = currentIdeaOffset();
+  const ideas = suggestLearningActivities(plan, offset, 4);
+  const favourites = new Set(readFavourites());
+  const doneKey = accountKey("caresits-learning-done-today");
+  const doneData = readJson(doneKey);
+  const doneIds = new Set(doneData?.day === todayISO() && Array.isArray(doneData.ids) ? doneData.ids : []);
+  const list = el("div", "learningIdeaList");
+  for (const activity of ideas) {
+    const copy = learningActivityCopy(activity);
+    const item = el("article", "findCard learningIdea");
+    item.append(el("h3", "findName", copy.title));
+    item.append(el("p", "findPlace", `${activity.bands.map((id) => tr(LEARNING_AGE_BANDS.find((b) => b.id === id)?.key || "")).join(", ")} · ${tr("learning.minutes", undefined, { n: activity.minutes })}`));
+    item.append(el("p", "homeBody", copy.howTo));
+    item.append(el("p", "findPlace", tr("learning.materials", undefined, { items: activity.materialsHome })));
+    item.append(el("p", "learningSafety", tr("learning.safety", undefined, { note: copy.safety })));
+    for (const language of plan.languages.slice(0, 3)) {
+      const vocab = learningVocabulary(language);
+      if (!vocab.length) continue;
+      const words = vocab.map(([, word]) => word).join(" · ");
+      item.append(el("p", "learningVocab", `${tr("learning.sayIt", undefined, { language })}: ${words}`));
+    }
+    const actions = el("div", "homeBtnRow learningActions");
+    const fav = el("button", "ghostBtn", favourites.has(activity.id) ? tr("learning.favourited") : tr("learning.favourite"));
+    fav.type = "button";
+    fav.setAttribute?.("aria-pressed", String(favourites.has(activity.id)));
+    fav.addEventListener("click", () => {
+      if (favourites.has(activity.id)) favourites.delete(activity.id); else favourites.add(activity.id);
+      writeFavourites([...favourites]);
+      window.CARESITS_RENDER_HOME?.();
+    });
+    const done = el("button", doneIds.has(activity.id) ? "ghostBtn" : "mainBtn", doneIds.has(activity.id) ? tr("learning.doneSaved") : tr("learning.doneToday"));
+    done.type = "button";
+    done.disabled = doneIds.has(activity.id);
+    done.addEventListener("click", async () => {
+      const day = todayISO();
+      const uid = me()?.uid || "member";
+      const id = `learning-${uid}-${day}-${activity.id}`;
+      const entry = { id, day, tile: "Activity", note: copy.title, at: new Date().toISOString() };
+      const save = write("dayStory", entry);
+      if (save) {
+        const result = await Promise.resolve(save);
+        if (result && result.ok === false) { done.textContent = tr("learning.saveFailed"); return; }
+      }
+      const existing = window.CARESITS_FAMILY || { children: [], entries: [] };
+      const entries = [...(existing.entries || []).filter((old) => old.id !== id), entry];
+      window.CARESITS_FAMILY = { ...existing, entries };
+      const key = accountKey("caresits-learning-done-today");
+      try { if (key) localStorage.setItem(key, JSON.stringify({ day, ids: [...doneIds, activity.id] })); } catch { /* private storage is optional */ }
+      window.CARESITS_FAMILY_RENDER?.();
+      window.CARESITS_RENDER_HOME?.();
+    });
+    actions.append(fav, done);
+    item.append(actions);
+    list.append(item);
+  }
+  card.append(list);
+  const show = el("button", "ghostBtn", tr("learning.showDifferent"));
+  show.type = "button";
+  show.addEventListener("click", () => {
+    saveIdeaOffset(offset + ideas.length);
+    window.CARESITS_RENDER_HOME?.();
+  });
+  card.append(show);
+  const savedIdeas = LEARNING_ACTIVITY_BANK.filter((activity) => favourites.has(activity.id) && activity.bands.some((band) => ageBands.includes(band)));
+  if (savedIdeas.length) {
+    card.append(el("h3", "findName", tr("learning.favouritesTitle")));
+    const favList = el("div", "chipRow learningChoices");
+    for (const activity of savedIdeas) {
+      const name = learningActivityCopy(activity).title;
+      const remove = el("button", "chipBtn on", name + " · " + tr("learning.removeFavourite"));
+      remove.type = "button";
+      remove.addEventListener("click", () => { favourites.delete(activity.id); writeFavourites([...favourites]); window.CARESITS_RENDER_HOME?.(); });
+      favList.append(remove);
+    }
+    card.append(favList);
+  }
+  return card;
+}
+
+function communicateHome(root) {
+  root.append(greeting("homes.communicateLead"));
+  const pitch = el("section", "v2Card v2Pitch");
+  pitch.append(el("h2", "v2Title", "Stay connected"));
+  for (const [t, b, go] of [["Shared calendar", "One week for you both. See who is coming and when.", "calendar"], ["Daily activities", "Fun ideas picked for your kids' ages and interests, every day.", null], ["Photo updates", "Your carer sends photos of the day. Ask for one any time.", "photos"]]) {
+    const row = el("button", "v2PitchRow");
+    row.type = "button";
+    row.append(el("strong", null, t), el("span", null, b));
+    row.addEventListener("click", () => { if (go) navTo(go); else document.getElementById("learningIdeasCard")?.scrollIntoView({ behavior: "smooth" }); });
+    pitch.append(row);
+  }
+  root.append(pitch);
+  root.append(learningSetupCard());
+  if (initialLearningPlan().setupComplete) root.append(learningIdeasCard());
+}
+
 function renderHome() {
   const root = document.getElementById("homeRoot");
   if (!root) return;
-  if (!state.posture) state.posture = defaultPosture();
+  const uid = (me() || {}).uid || null;
+  if (state.uid !== uid) state.uid = uid;
   root.replaceChildren();
-  if (state.posture === "days") daysHome(root); else findingHome(root);
+  const role = entryRole();
+  if (role === "career") { careerHome(root); return; }
+  if (role === "communicate") { communicateHome(root); return; }
+  if (currentMode() === "connected") { daysHome(root); return; }
+  findingHome(root);
 }
 
 if (document.getElementById("homeRoot")) renderHome();

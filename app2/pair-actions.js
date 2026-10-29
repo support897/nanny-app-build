@@ -4,7 +4,7 @@
 // ride the account layer when the rules publish.
 export const pairIdFor = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
 
-export function planContact({ familyUid, carerUid, createdBy, nowIso, createdDay, profileComplete }) {
+export function planContact({ familyUid, carerUid, createdBy, nowIso, createdDay, profileComplete, learningPlan = null, learningMatches = [] }) {
   // The browse gate (founder ruling, 15 Oct 2026): everyone can look at
   // everyone, free. Messaging anyone takes a finished profile
   // and the full questionnaire. Browsing itself is never gated.
@@ -19,6 +19,8 @@ export function planContact({ familyUid, carerUid, createdBy, nowIso, createdDay
       familyUid, carerUid,
       state: "pending",
       createdBy, createdAt: nowIso, createdDay,
+      ...(learningPlan && typeof learningPlan === "object" ? { learningPlan } : {}),
+      ...(Array.isArray(learningMatches) && learningMatches.length ? { learningMatches: learningMatches.slice(0, 3) } : {}),
     },
   };
 }
@@ -42,6 +44,19 @@ export function planTransition(rel, actorUid, to) {
     return { ok: true, patch: { state: "hired" } };
   }
   return { ok: false, reason: "unknown-state" };
+}
+
+// Public jobs can include old QA records. Hide known test labels without
+// collapsing legitimate customer posts that happen to share their details.
+export function cleanJobListings(jobs) {
+  const testLabel = /\burgent(?:cap|job)[a-z0-9_-]*\b|\bmicro[\s_-]*job(?:[\s_-]*[a-z0-9_-]+)?\b|\btest[\s_-]*job\b/i;
+  return (Array.isArray(jobs) ? jobs : []).filter((job) => {
+    if (!job || typeof job !== "object") return false;
+    const words = [job.id, job.title, job.name, job.when, job.note, job.description].map((v) => String(v || "")).join(" ");
+    const hasUsefulDetails = [job.postcode, job.title, job.name, job.note, job.description]
+      .some((v) => String(v || "").trim());
+    return hasUsefulDetails && !testLabel.test(words);
+  });
 }
 
 export function planJobPost({ familyUid, when, dayParts, postcode, bands, note, latE2, lngE2, nowIso, profileComplete, level }) {

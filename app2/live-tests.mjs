@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { routeWrite, trustSeamFrom, publishTrust, refreshTrustName, writeDataFor, makeWriter, phaseCNameTargets, phaseCSeam, fetchPhaseC, activityStampPath, weekSeamFrom, threadSeamFrom } from "./live.js";
+import { accountKey, draftKey, doneKey, clearSessionMarkers } from "./storage-keys.js";
+import { cleanJobListings } from "./pair-actions.js";
 import { frameUser, FRAME_WAIT, planSave, publishSavedProfile, drainOutbox } from "./account-save.js";
 let n = 0; const t = (name, fn) => { fn(); n += 1; console.log("ok -", name); };
 const ta = async (name, fn) => { await fn(); n += 1; console.log("ok -", name); };
@@ -11,6 +13,34 @@ t("router: children and story ride the owner's own folders, under their own ids 
 t("router: a message is the sender's own copy", () => { assert.equal(routeWrite("message", { pairId: "p", text: "hi", at: "x" }, "a").path, "users/a/messages"); });
 t("router: calendar kinds map to their delta homes", () => { assert.equal(routeWrite("request-decide", { pairId: "p", reqId: "R1", patch: {} }, "a").path, "schedule/p/requests/R1"); assert.equal(routeWrite("block-land", { path: "schedule/p/blocks", data: {} }, "a").op, "add"); });
 t("router: unknown kinds are refused", () => { assert.equal(routeWrite("teleport", {}, "a").ok, false); });
+t("entry role: each choice saves to its own uid app document", () => {
+  const r = routeWrite("entry-role", { entryRole: "communicate" }, "member-a");
+  assert.deepEqual(r, { ok: true, op: "merge", path: "users/member-a/meta/app", data: { entryRole: "communicate" } });
+  assert.equal(routeWrite("entry-role", { entryRole: "family" }, "member-b").path, "users/member-b/meta/app");
+  assert.equal(routeWrite("entry-role", { entryRole: "admin" }, "member-a").ok, false);
+  assert.equal(accountKey("caresits-name", "member-a"), "caresits-name-member-a");
+  assert.equal(accountKey("caresits-name", "member-b"), "caresits-name-member-b");
+  assert.equal(accountKey("caresits-name", null), null);
+});
+t("active side: each view persists in the signed-in account app document", () => {
+  const r = routeWrite("active-side", { side: "communicate" }, "member-a");
+  assert.deepEqual(r, { ok: true, op: "merge", path: "users/member-a/meta/app", data: { activeSide: "communicate" } });
+  assert.equal(routeWrite("active-side", { side: "career" }, "member-b").path, "users/member-b/meta/app");
+  assert.equal(routeWrite("active-side", { side: "admin" }, "member-a").ok, false);
+});
+t("side tours: completion is remembered in that account without sharing other sides", () => {
+  assert.deepEqual(routeWrite("side-tour", { side: "family" }, "member-a"), { ok: true, op: "merge", path: "users/member-a/meta/app", data: { tourFamilyDone: true } });
+  assert.deepEqual(routeWrite("side-tour", { side: "career" }, "member-b").data, { tourCareerDone: true });
+  assert.equal(routeWrite("side-tour", { side: "admin" }, "member-a").ok, false);
+});
+t("router: the view mode rides meta/app, and only the two modes stand", () => {
+  const r = routeWrite("mode", { mode: "connected" }, "member-a");
+  assert.deepEqual(r, { ok: true, op: "merge", path: "users/member-a/meta/app", data: { mode: "connected" } });
+  assert.equal(routeWrite("mode", { mode: "finding" }, "member-b").path, "users/member-b/meta/app");
+  assert.equal(routeWrite("mode", { mode: "days" }, "member-a").ok, false);
+  assert.equal(routeWrite("mode", {}, "member-a").ok, false);
+  assert.equal(routeWrite("mode", { mode: "connected" }, "").ok, false);
+});
 t("router: the two homes kinds land on their ruled shapes", () => {
   const inv = routeWrite("invite-create", { path: "invites/K7P2Q9AB", data: { familyUid: "a", label: "", createdAt: "x", usedBy: null } }, "a");
   assert.equal(inv.op, "set"); assert.equal(inv.path, "invites/K7P2Q9AB");
@@ -304,6 +334,19 @@ t("phase C names (F19): a carer also needs the families who posted the board job
   const jobs = [{ familyUid: "f1" }, { familyUid: "f2" }, { familyUid: "c9" }];
   assert.deepEqual(phaseCNameTargets("c9", "carer", rels, jobs).sort(), ["f1", "f2"]);
 });
+t("urgent board: test labels are hidden without suppressing legitimate repeated details", () => {
+  const jobs = cleanJobListings([
+    { id: "UrgentCap2b", familyUid: "f1", when: "Saturday", postcode: "4217", note: "Saturday morning help" },
+    { id: "UrgentJobNight", familyUid: "f1", when: "Saturday", postcode: "4217", note: "Saturday morning help" },
+    { id: "micro-3", familyUid: "f2", when: "Today", postcode: "4220", note: "micro job" },
+    { id: "test-4", familyUid: "f4", when: "Today", postcode: "4220", note: "test job" },
+    { id: "empty-1", familyUid: "f5", when: "Soon", postcode: "", note: "" },
+    { id: "empty-2", familyUid: "f6", when: "Soon", postcode: "", note: "" },
+    { id: "real-1", familyUid: "f3", when: "Tomorrow", postcode: "2000", note: "Help after school" },
+    { id: "real-2", familyUid: "f3", when: "Tomorrow", postcode: "2000", note: "Help after school" },
+  ]);
+  assert.deepEqual(jobs.map((job) => job.id), ["real-1", "real-2"]);
+});
 t("phase C seam (F19): the shape is viewer, pairs, jobs and names, empty by default", () => {
   assert.deepEqual(phaseCSeam({ uid: "f1", side: "family" }), { viewer: { uid: "f1", side: "family" }, rels: [], jobs: [], names: {} });
 });
@@ -341,7 +384,8 @@ await ta("phase C fetch (F19): a member with nothing yet gets the empty seam, so
 });
 
 
-t("router: a fresh photo clears the lifecycle's swept stamp; a manual remove leaves it alone", () => { const r = routeWrite("photo", { photoUrl: "https://x/new.jpg" }, "a"); assert.equal(r.data.photoClearedAt, null); assert.equal(r.data.photoUrl, "https://x/new.jpg"); const c = routeWrite("photo", { photoUrl: "" }, "a"); assert.ok(!("photoClearedAt" in c.data)); });
+t("router: the need route carries a four digit postcode and capped sorted ISO dates (plan item D)", () => { const r = routeWrite("need", { text: "Help Tuesdays", kinds: ["Babysitter"], days: ["Tue"], parts: [], postcode: "2031", dates: ["2026-11-03", "2026-11-03", "2026-10-30", "junk", "2026-1-3"] }, "a"); assert.equal(r.data.postcode, "2031"); assert.deepEqual(r.data.dates, ["2026-10-30", "2026-11-03"]); const bad = routeWrite("need", { text: "x", postcode: "203" }, "a"); assert.equal(bad.data.postcode, ""); assert.deepEqual(bad.data.dates, []); const many = routeWrite("need", { text: "x", dates: Array.from({ length: 20 }, (_, i) => "2026-11-" + String(i + 1).padStart(2, "0")) }, "a"); assert.equal(many.data.dates.length, 14); });
+t("router: the photo route writes photoUrl alone (the sealed fence admits no second field; the pair answered 403 on the twin)", () => { const r = routeWrite("photo", { photoUrl: "https://x/new.jpg" }, "a"); assert.deepEqual(r.data, { photoUrl: "https://x/new.jpg" }); const c = routeWrite("photo", { photoUrl: "" }, "a"); assert.deepEqual(c.data, { photoUrl: "" }); });
 t("week seam (b104 ROOT B): the meta documents become the lists the week surfaces render", () => {
   const w = weekSeamFrom({ timesheets: [{ day: "Mon", hours: 3 }], reminderDoc: { text: "Ring Ana", when: "Tue" }, emergencyDoc: { name: "Gran", phone: "0400" } });
   assert.deepEqual(w.entries, [{ day: "Mon", hours: 3 }]);
@@ -456,5 +500,32 @@ t("profile completeness (b107 Legs 9+10): judged from the seam's saved facts at 
 });
 t("activity stamp: a carer stamps at the root seat", () => { assert.equal(activityStampPath("u1", "carer"), "_activity/u1"); });
 t("activity stamp: families never stamp, and no uid no stamp", () => { assert.equal(activityStampPath("u1", "family"), null); assert.equal(activityStampPath("", "carer"), null); assert.equal(activityStampPath(null, "carer"), null); });
+
+t("browser storage: user keys are uid-scoped and no legacy key is read while auth loads", () => {
+  const oldWindow = globalThis.window, oldSession = globalThis.sessionStorage;
+  const session = new Map();
+  globalThis.sessionStorage = { getItem: (k) => session.get(k) ?? null, setItem: (k, v) => session.set(k, String(v)), removeItem: (k) => session.delete(k) };
+  globalThis.window = { CARESITS_AUTH_STATE: "loading", CARESITS_UID: null };
+  assert.equal(draftKey(), null);
+  assert.equal(doneKey(), null);
+  window.CARESITS_UID = "family-a";
+  assert.equal(draftKey(), "caresits-app2-draft-family-a");
+  assert.equal(doneKey(), "caresits-app2-questionnaire-family-a");
+  window.CARESITS_UID = "carer-b";
+  assert.equal(draftKey(), "caresits-app2-draft-carer-b");
+  window.CARESITS_UID = null;
+  window.CARESITS_AUTH_STATE = "signed-out";
+  // Fleet rule (29 Oct 2026): no demo slot exists. A stale
+  // marker from an old install buys nothing: signed out
+  // still reads no key. Sign out hygiene still strips the
+  // stale marker itself.
+  session.set("caresits-demo", "1");
+  assert.equal(draftKey(), null);
+  assert.equal(doneKey(), null);
+  clearSessionMarkers();
+  assert.equal(session.has("caresits-demo"), false);
+  globalThis.window = oldWindow;
+  if (oldSession === undefined) delete globalThis.sessionStorage; else globalThis.sessionStorage = oldSession;
+});
 
 console.log(`\nALL ${n} live-router checks passed`);

@@ -147,7 +147,8 @@ export function warmSave() {
         const appMod = await import(`${SDK}/firebase-app.js`);
         const authMod = await import(`${SDK}/firebase-auth.js`);
         const app = appMod.getApps().find((a) => a.name === "[DEFAULT]") || appMod.initializeApp(firebaseConfig);
-        const auth = authMod.getAuth(app);
+        const { sharedAuth } = await import("./auth-shared.js");
+        const auth = sharedAuth(authMod, app);
         if (auth && typeof auth.authStateReady === "function") await auth.authStateReady();
         return auth;
       } catch { return null; }
@@ -164,7 +165,9 @@ export function warmSave() {
 // moment, at any pace, after any teardown (QA b108).
 export async function drainOutbox(save) {
   let raw = null;
-  try { raw = localStorage.getItem(doneKey()); } catch { return false; }
+  const key = doneKey();
+  if (!key) return false;
+  try { raw = localStorage.getItem(key); } catch { return false; }
   if (!raw) return false;
   let bundle = null;
   try { bundle = JSON.parse(raw); } catch { return false; }
@@ -173,7 +176,7 @@ export async function drainOutbox(save) {
   try {
     const r = await saver(bundle);
     if (r && r.saved === "account") {
-      try { localStorage.removeItem(doneKey()); } catch { /* storage off */ }
+      try { localStorage.removeItem(key); } catch { /* storage off */ }
       return true;
     }
   } catch { /* the envelope stands for the next drain */ }
@@ -187,7 +190,8 @@ export async function saveBundle(bundle, firebaseConfig) {
   // The DEFAULT app only, shared with the door: a named app carries its
   // own auth session and would never see the signed-in user (R1).
   const app = appMod.getApps().find((a) => a.name === "[DEFAULT]") || appMod.initializeApp(firebaseConfig);
-  const auth = authMod.getAuth(app);
+  const { sharedAuth } = await import("./auth-shared.js");
+  const auth = sharedAuth(authMod, app);
   const user = await frameUser(auth);
   if (!user || user.isAnonymous) return { saved: "local", reason: "signed-out" };
   // The restored session's user can stand before its token
@@ -221,8 +225,12 @@ export async function saveBundle(bundle, firebaseConfig) {
   }
   const alreadyActivated = profSnap.exists() && "activatedAt" in profSnap.data();
   const cardSnap = await fsMod.getDoc(fsMod.doc(db, "profiles", user.uid)).catch(() => null);
-  const keptPhoto = cardSnap && cardSnap.exists() ? (cardSnap.data().photoUrl || "") : "";
-  const keptGallery = cardSnap && cardSnap.exists() ? ((cardSnap.data().card || {}).gallery || []) : [];
+  const appSnap = await fsMod.getDoc(fsMod.doc(db, "users", user.uid, "meta", "app")).catch(() => null);
+  const cardData = cardSnap && cardSnap.exists() ? cardSnap.data() : {};
+  const appData = appSnap && appSnap.exists() ? appSnap.data() : {};
+  const keptPhoto = cardData.photoUrl || "";
+  const keptGallery = (cardData.card || {}).gallery || [];
+  const keptLearningPlan = cardData.learningPlan || appData.learningPlan || null;
   const plan = planSave(bundle, {
     uid: user.uid,
     displayName: profSnap.exists() ? (profSnap.data().displayName || "") : "",
@@ -231,6 +239,7 @@ export async function saveBundle(bundle, firebaseConfig) {
     gallery: keptGallery,
     nowIso: new Date().toISOString(),
   });
+  if (keptLearningPlan) plan.card.data.learningPlan = keptLearningPlan;
   const batch = fsMod.writeBatch(db);
   if (plan.profileSide) {
     batch.set(fsMod.doc(db, ...plan.profileSide.path.split("/")), plan.profileSide.data, { merge: true });
