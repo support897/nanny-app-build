@@ -1,10 +1,11 @@
-import { t as tr, currentLang, setLang } from "./lang.js";
-import { doneKey, draftKey } from "./storage-keys.js";
+import { t as tr, currentLang, setLang, ENGLISH_ONLY } from "./lang.js";
+import { accountKey, doneKey, draftKey } from "./storage-keys.js";
 import { downloadExport } from "./export.js";
 import { pushAvailable, getPushState, registerPush, togglePushKind } from "./push.js";
 import { uploadProfilePhoto, uploadGalleryPhoto, deleteFromStorage, planPathFromUrl, removeProfilePhoto } from "./photo.js";
 import { draftFromText, buildHandoff } from "./resume.js";
 import { extractPdfText } from "./pdf-text.js";
+import { paintFileImg } from "./files.js";
 import { LANGS, NATIONALITIES } from "./questions.js";
 import { packById, packByName, checkFor } from "./countries.js";
 // Caresitters app2 — Phase D trust surfaces: Checks, Reviews,
@@ -33,26 +34,88 @@ const emptyBox = (root, title, words) => {
 
 // The Checks surface speaks the viewer's own country's check
 // name and register kind (country packs). The country comes from
-// the signed in profile when present, else from this device's
-// saved questionnaire or draft, else Australia.
+// the signed-in profile or that member's saved questionnaire/draft.
+// If none is present, the UI does not guess a country.
 function viewerCountryName() {
   const me = (window.CARESITS_TRUST || {}).me || {};
   if ((window.CARESITS_ME || {}).country) return window.CARESITS_ME.country;
   if (me.country) return me.country;
   try {
-    const q = JSON.parse(localStorage.getItem(doneKey()) || "null");
+    const qKey = doneKey();
+    const q = qKey ? JSON.parse(localStorage.getItem(qKey) || "null") : null;
     if (q && (q.country || (q.answers && q.answers.country))) return q.country || q.answers.country;
-    const d = JSON.parse(localStorage.getItem(draftKey()) || "null");
+    const dKey = draftKey();
+    const d = dKey ? JSON.parse(localStorage.getItem(dKey) || "null") : null;
     if (d && d.answers && d.answers.country) return d.answers.country;
   } catch { /* no local copy */ }
-  return "Australia";
+  return "";
+}
+
+function renderTrustProgress(root, me, docs, surface, options = {}) {
+  const items = [
+    ["trust.stepName", Boolean(me.name)],
+    ["trust.stepArea", Boolean(me.postcode)],
+    ["trust.stepDetails", Boolean(me.level)],
+    ["trust.stepPhoto", Boolean(me.photoUrl)],
+    ["trust.stepChecks", Array.isArray(docs) && docs.length > 0],
+  ];
+  const complete = items.filter((item) => item[1]).length;
+  const card = el("section", "cardIn trustChecklist");
+  card.setAttribute("aria-labelledby", "trustChecklistTitle-" + surface);
+  const heading = el("h3", "findName", tr("trust.checklistTitle"));
+  heading.id = "trustChecklistTitle-" + surface;
+  card.append(heading, el("p", "findPlace", tr("trust.progress", undefined, { n: complete, total: items.length })));
+  const list = el("ul", "trustChecklistItems");
+  for (const [key, done] of items) {
+    const row = el("li", "trustChecklistItem" + (done ? " isDone" : ""));
+    row.append(el("span", "trustChecklistMark", done ? tr("trust.done") : tr("trust.notYet")), el("span", null, tr(key)));
+    list.append(row);
+  }
+  const nextLabel = el("p", "fieldLabel trustNextLabel", tr("trust.nextAction"));
+  card.append(list, nextLabel);
+  const next = el("button", "mainBtn", tr("trust.nextProfile"));
+  next.type = "button";
+  let action = () => window.CARESITS_NAV?.("profile");
+  if (!me.postcode || !me.level) {
+    next.textContent = tr("trust.nextDetails");
+    action = () => window.CARESITS_NAV?.("questionnaire");
+  } else if (!me.photoUrl) {
+    next.textContent = tr("trust.nextPhoto");
+    action = options.onPhoto || (() => window.CARESITS_NAV?.("profile"));
+  } else if (!(Array.isArray(docs) && docs.length)) {
+    if (surface === "checks" && options.checkUrl) {
+      const link = el("a", "mainBtn privacyLink", tr("trust.nextOfficial"));
+      link.href = options.checkUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+      card.append(link);
+      root.append(card);
+      return;
+    }
+    next.textContent = tr("trust.nextChecks");
+    action = () => window.CARESITS_NAV?.("checks");
+  } else if ((surface === "reviews" && !(Array.isArray(options.reviews) && options.reviews.length)) || surface === "profile") {
+    const side = me.side || window.CARESITS_ME?.side || "family";
+    const nav = side === "carer" ? "board" : side === "communicate" ? "thread" : "find";
+    next.textContent = tr(side === "carer" ? "trust.nextJobs" : side === "communicate" ? "shell.messages" : "trust.nextFind");
+    action = () => window.CARESITS_NAV?.(nav);
+  }
+  next.addEventListener("click", action);
+  // The photo card already owns this action; do not repeat it in the checklist.
+  const photoActionIsAlreadyVisible = surface === "profile" && options.onPhoto && !me.photoUrl && me.postcode && me.level;
+  if (photoActionIsAlreadyVisible) nextLabel.textContent = `${tr("trust.nextAction")}: ${tr("trust.nextPhoto")}`;
+  else card.append(next);
+  root.append(card);
 }
 
 export function renderChecks(root, docs) {
   root.replaceChildren();
   root.append(el("h2", "findTitle", tr("shell.checksNav")));
   root.append(el("p", "findPool", tr("checks.lead")));
-  const pack = packByName(viewerCountryName()) || packById("AU");
+  const trust = window.CARESITS_TRUST || {};
+  const me = trust.me || {};
+  const country = viewerCountryName();
+  const pack = country ? packByName(country) : null;
   if (pack) {
     const me = (window.CARESITS_TRUST || {}).me || {};
     const facts = checkFor(pack, me.postcode || (window.CARESITS_ME || {}).postcode);
@@ -61,12 +124,10 @@ export function renderChecks(root, docs) {
     card.append(el("p", "findPlace", facts.name));
     card.append(el("p", null, tr(facts.register ? "country.registerLine" : "country.sightedLine")));
     card.append(el("p", "findGate", facts.costText));
-    if (facts.checkUrl) {
-      const a = el("a", "quietBtn", tr("country.officialLink"));
-      a.href = facts.checkUrl; a.target = "_blank"; a.rel = "noopener";
-      card.append(a);
-    }
     root.append(card);
+    renderTrustProgress(root, me, docs, "checks", { checkUrl: facts.checkUrl });
+  } else {
+    renderTrustProgress(root, me, docs, "checks");
   }
   if (!docs.length) { emptyBox(root, tr("checks.emptyTitle"), tr("checks.emptyBody")); return; }
   const list = el("div", "findList");
@@ -83,6 +144,9 @@ export function renderChecks(root, docs) {
 export function renderReviews(root, reviews) {
   root.replaceChildren();
   root.append(el("h2", "findTitle", tr("shell.reviews")));
+  root.append(el("p", "findPool", tr("trust.reviewsLead")));
+  const trust = window.CARESITS_TRUST || {};
+  renderTrustProgress(root, trust.me || {}, trust.docs || [], "reviews", { reviews });
   if (!reviews.length) { emptyBox(root, tr("trust.reviewsEmpty"), tr("trust.reviewsEmptyBody")); return; }
   const list = el("div", "findList");
   for (const r of reviews) {
@@ -98,15 +162,16 @@ export function renderReviews(root, reviews) {
 export function renderProfile(root, me) {
   root.replaceChildren();
   root.append(el("h2", "findTitle", tr("shell.profile")));
+  root.append(el("p", "findPool", tr("trust.profileLead")));
   const card = el("div", "findCard");
   card.append(el("h3", "findName", me.name || tr("trust.nameWaits")));
-  card.append(el("p", "findPlace", (me.side === "carer" ? tr("trust.sideCarer") : tr("trust.sideFamily")) + (me.postcode ? " · " + tr("find.postcode", undefined, { n: me.postcode }) : "")));
+  card.append(el("p", "findPlace", (me.side === "carer" ? tr("trust.sideCarer") : me.side === "communicate" ? tr("trust.sideCommunicate") : tr("trust.sideFamily")) + (me.postcode ? " · " + tr("find.postcode", undefined, { n: me.postcode }) : "")));
   if (me.level) {
     card.append(el("p", "findPlace", tr("level.profileLabel")));
     card.append(el("p", null, tr("level." + me.level)));
   }
   card.append(el("p", null, tr("trust.profileBody")));
-  const go = el("button", "mainBtn", tr("trust.seeQ"));
+  const go = el("button", "ghostBtn", tr("trust.seeQ"));
   go.type = "button";
   go.addEventListener("click", () => document.querySelector('[data-nav="questionnaire"]')?.click());
   card.append(go);
@@ -114,7 +179,7 @@ export function renderProfile(root, me) {
   const pcard = el("div", "cardIn");
   pcard.append(el("h3", null, tr("photo.title")), el("p", null, tr("photo.body")));
   let photoImg = null;
-  if (me.photoUrl) { photoImg = el("img", "profilePhoto"); photoImg.src = me.photoUrl; photoImg.alt = ""; pcard.append(photoImg); }
+  if (me.photoUrl) { photoImg = el("img", "profilePhoto"); paintFileImg(photoImg, me.photoUrl); photoImg.alt = ""; pcard.append(photoImg); }
   const pfile = el("input");
   pfile.type = "file";
   pfile.accept = "image/*";
@@ -161,6 +226,8 @@ export function renderProfile(root, me) {
   }
   pcard.append(pick, pfile);
   root.append(pcard);
+  const trust = window.CARESITS_TRUST || {};
+  renderTrustProgress(root, me, trust.docs || [], "profile", { onPhoto: () => pick.click() });
   if (me.side === "carer") {
     // F14: up to four more photos. The saved list rides the
     // card (card.gallery, slot order) and every change writes
@@ -182,7 +249,7 @@ export function renderProfile(root, me) {
       gallery.forEach((url, i) => {
         const slot = el("div", "gallerySlot");
         const im = el("img", "galleryThumb");
-        im.src = url;
+        paintFileImg(im, url);
         im.alt = "";
         const rm = el("button", "quietBtn galleryRemove", tr("gallery.remove"));
         rm.type = "button";
@@ -270,7 +337,8 @@ export function renderProfile(root, me) {
       use.addEventListener("click", () => {
         try {
           const h = buildHandoff(draft);
-          localStorage.setItem("caresits-app2-resume-draft", JSON.stringify(h));
+          const key = accountKey("caresits-app2-resume-draft");
+          if (key) localStorage.setItem(key, JSON.stringify(h));
         } catch { /* storage off */ }
         out.append(el("p", "gateMsg", tr("resume.saved")));
       });
@@ -331,18 +399,63 @@ export function applyBackground(choice, dataUrl) {
 export function renderSettings(root) {
   root.replaceChildren();
   root.append(el("h2", "findTitle", tr("shell.settings")));
+  const makeGroup = (key) => {
+    const group = el("section", "settingsGroup");
+    group.setAttribute("aria-labelledby", "settingsGroup-" + key);
+    const heading = el("h3", "settingsGroupTitle", tr("settings.group." + key));
+    heading.id = "settingsGroup-" + key;
+    group.append(heading);
+    root.append(group);
+    return group;
+  };
+  if (window.CARESITS_V2) window.CARESITS_V2.modeCards(root);
+  // The whole view switch (Ilse's ruling, 28 Oct 2026)
+  // stands in Settings too: the same switch as the side bar
+  // menu, riding the shell's own seam, so both places always
+  // agree. Finding shows the Finding home and the Finding
+  // surfaces; Connected changes the whole app to the pair's
+  // daily world.
+  const viewCard = el("div", "findCard");
+  viewCard.append(el("h3", "findName", tr("mode.title")));
+  viewCard.append(el("p", null, tr("mode.sell")));
+  const viewRow = el("div", "chipRow");
+  const viewNow = (typeof window !== "undefined" && window.CARESITS_MODE_STATE && window.CARESITS_MODE_STATE.mode) || "finding";
+  for (const [key, label] of [["finding", tr("shell.finding")], ["connected", tr("shell.connected")]]) {
+    const b = el("button", "chipBtn" + (viewNow === key ? " on" : ""), label);
+    b.type = "button";
+    b.dataset.modePick = key;
+    b.addEventListener("click", () => { if (typeof window.CARESITS_SET_MODE === "function") window.CARESITS_SET_MODE(key); renderSettings(root); });
+    viewRow.append(b);
+  }
+  viewCard.append(viewRow);
+  root.append(viewCard);
+  const languageGroup = makeGroup("language");
+  const lookGroup = makeGroup("look");
+  const notificationsGroup = makeGroup("notifications");
+  const dataGroup = makeGroup("data");
+  const accountGroup = makeGroup("account");
+  const tourCard = el("div", "findCard");
+  tourCard.append(el("h3", "findName", tr("tour.settingsTitle")));
+  tourCard.append(el("p", null, tr("tour.settingsBody")));
+  const replay = el("button", "mainBtn", tr("tour.replay"));
+  replay.type = "button";
+  replay.addEventListener("click", () => window.CARESITS_REPLAY_SIDE_TOUR?.());
+  tourCard.append(replay);
+  lookGroup.append(tourCard);
   const card = el("div", "findCard");
   card.append(el("h3", "findName", tr("trust.background")));
   card.append(el("p", null, tr("trust.backgroundBody")));
   const row = el("div", "chipRow");
-  const saved = (() => { try { return JSON.parse(localStorage.getItem(BG_KEY)) || { choice: "brand" }; } catch { return { choice: "brand" }; } })();
+  const bgKey = accountKey(BG_KEY);
+  const saved = (() => { try { return bgKey ? JSON.parse(localStorage.getItem(bgKey)) || { choice: "brand" } : { choice: "brand" }; } catch { return { choice: "brand" }; } })();
   for (const [key, label] of [["brand", tr("trust.bg.brand")], ["white", tr("trust.bg.white")], ["black", tr("trust.bg.black")], ["upload", tr("trust.bg.upload")]]) {
     const b = el("button", "chipBtn" + (saved.choice === key ? " on" : ""), label);
     b.type = "button";
     b.dataset.bg = key;
     b.addEventListener("click", () => {
       if (key === "upload") { fileIn.click(); return; }
-      localStorage.setItem(BG_KEY, JSON.stringify({ choice: key }));
+      const bgKey = accountKey(BG_KEY);
+      if (bgKey) localStorage.setItem(bgKey, JSON.stringify({ choice: key }));
       applyBackground(key, null);
       write("appearance", { choice: key });
       renderSettings(root);
@@ -366,8 +479,8 @@ export function renderSettings(root) {
       c.height = Math.round(img.height * scale);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
       const url = c.toDataURL("image/jpeg", 0.82);
-      localStorage.setItem(BG_KEY, JSON.stringify({ choice: "upload" }));
-      localStorage.setItem(BG_KEY + "-img", url);
+      const bgKey = accountKey(BG_KEY);
+      if (bgKey) { localStorage.setItem(bgKey, JSON.stringify({ choice: "upload" })); localStorage.setItem(bgKey + "-img", url); }
       applyBackground("upload", url);
       write("appearance", { choice: "upload" });
       renderSettings(root);
@@ -379,15 +492,15 @@ export function renderSettings(root) {
     const rm = el("button", "quietBtn", tr("trust.removePic"));
     rm.type = "button";
     rm.addEventListener("click", () => {
-      localStorage.setItem(BG_KEY, JSON.stringify({ choice: "brand" }));
-      localStorage.removeItem(BG_KEY + "-img");
+      const bgKey = accountKey(BG_KEY);
+      if (bgKey) { localStorage.setItem(bgKey, JSON.stringify({ choice: "brand" })); localStorage.removeItem(bgKey + "-img"); }
       applyBackground("brand", null);
       write("appearance", { choice: "brand" });
       renderSettings(root);
     });
     card.append(rm);
   }
-  root.append(card);
+  lookGroup.append(card);
   const langCard = el("div", "findCard");
   langCard.append(el("h3", "findName", tr("common.language")));
   const langRow = el("div", "chipRow");
@@ -418,7 +531,7 @@ export function renderSettings(root) {
     langRow.append(b);
   }
   langCard.append(langRow);
-  root.append(langCard);
+  if (ENGLISH_ONLY) languageGroup.remove(); else languageGroup.append(langCard);
   // Plans entry (payments chapter): families only. A carer account
   // never sees a purchase surface (carers have no tiers, ever), so
   // the card stands unless the viewer is known to be a carer. The
@@ -432,7 +545,7 @@ export function renderSettings(root) {
     plansBtn.id = "plansBtn";
     plansBtn.addEventListener("click", () => { if (typeof window.CARESITS_OPEN_PLANS === "function") window.CARESITS_OPEN_PLANS(); });
     plansCard.append(plansBtn);
-    root.append(plansCard);
+    accountGroup.append(plansCard);
   }
   // Push switches stand only when the native seam is live on
   // this device (Security fence: no controls that cannot
@@ -455,7 +568,7 @@ export function renderSettings(root) {
       pushCard.append(row);
     }
     pushCard.append(el("p", "findGate", tr("push.note")));
-    root.append(pushCard);
+    notificationsGroup.append(pushCard);
     registerPush().catch(() => {});
   }
   const dataCard = el("div", "findCard");
@@ -470,14 +583,14 @@ export function renderSettings(root) {
     dataCard.append(note);
   });
   dataCard.append(dl);
-  root.append(dataCard);
+  dataGroup.append(dataCard);
   const acct = el("div", "findCard");
   acct.append(el("h3", "findName", tr("trust.account")));
   acct.append(el("p", null, tr("trust.accountBody")));
   const link = el("a", "mainBtn privacyLink", tr("trust.openAccount"));
   link.href = "../accounts/account.html";
   acct.append(link);
-  root.append(acct);
+  accountGroup.append(acct);
 }
 
 function bootTrust() {
@@ -492,8 +605,9 @@ function bootTrust() {
   if (p) renderProfile(p, d.me || {});
   if (pv) renderPrivacy(pv);
   if (s) renderSettings(s);
-  const saved = (() => { try { return JSON.parse(localStorage.getItem(BG_KEY)) || { choice: "brand" }; } catch { return { choice: "brand" }; } })();
-  applyBackground(saved.choice, saved.choice === "upload" ? localStorage.getItem(BG_KEY + "-img") : null);
+  const bgKey = accountKey(BG_KEY);
+  const saved = (() => { try { return bgKey ? JSON.parse(localStorage.getItem(bgKey)) || { choice: "brand" } : { choice: "brand" }; } catch { return { choice: "brand" }; } })();
+  applyBackground(saved.choice, saved.choice === "upload" && bgKey ? localStorage.getItem(bgKey + "-img") : null);
 }
 
 // The live bridge re-publishes the trust seam when the signed

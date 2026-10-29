@@ -1,18 +1,115 @@
-import { applyI18n } from "./lang.js";
+import { applyI18n, t as tr } from "./lang.js";
+import { cleanMode, resolveBootMode, MODE_CONNECTED, MODE_FINDING } from "./mode.js";
+import { modeKey } from "./storage-keys.js";
 applyI18n();
-// Caresitters app2 shell — her nav shape of 15 Oct 2026.
-// Menu hidden on load. Opening it gives the menu most of the
-// screen and shrinks the content to a thin sliver at the edge.
-// Tapping the sliver, or Close, returns full content. Groups:
-// one open at a time. The open state is never remembered across
-// loads: every visit starts with the full screen app.
+// Caresitters app2 shell — role-based bottom tabs, with the
+// existing grouped menu under More. Menu-open state is not saved.
 const $ = (s) => document.querySelector(s);
 const layout = $("#layout");
 const SOON = new Set([]);
 const TITLES = {};
+let activeNav = "home";
 
-function openMenu() { layout.classList.add("open"); }
-function closeMenu() { layout.classList.remove("open"); }
+function setBottomActive(nav = activeNav) {
+  const weekNav = ["calendar", "roster", "timesheet", "reminders"].includes(nav) ? "calendar" : nav;
+  for (const button of document.querySelectorAll(".bottomTab")) {
+    const active = !button.hidden && (button.dataset.nav === weekNav || (nav === "more" && button.dataset.openMore === "true"));
+    button.classList.toggle("on", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+}
+function refreshHomeSwitch() {
+  const button = document.getElementById("homeSideSwitchBtn");
+  const dialog = document.getElementById("homeSideSwitchDialog");
+  if (button) button.hidden = !window.CARESITS_ME?.uid || activeNav !== "home";
+  if (dialog && !window.CARESITS_ME?.uid) dialog.hidden = true;
+}
+function openMenu() { layout.classList.add("open"); setBottomActive("more"); }
+function closeMenu() { layout.classList.remove("open"); setBottomActive(activeNav); }
+
+function setRoleNavigation(entryRole) {
+  const communicate = entryRole === "communicate";
+  const career = entryRole === "career";
+  const finding = document.querySelector('[data-group="finding"]');
+  const family = document.querySelector('[data-group="family"]');
+  const week = document.querySelector('[data-group="week"]');
+  const conversations = document.getElementById("commMessages");
+  if (finding) finding.hidden = communicate;
+  if (family) family.hidden = career || communicate;
+  if (week) week.hidden = communicate;
+  if (conversations) conversations.hidden = !communicate;
+  for (const button of document.querySelectorAll("[data-bottom-role]")) button.hidden = button.dataset.bottomRole !== entryRole;
+  setBottomActive(activeNav);
+  setTimeout(() => {
+    if (entryRole !== "communicate" && activeNav === "home") show("find");
+    else if (entryRole === "communicate" && activeNav === "find") show("home");
+  }, 0);
+}
+window.CARESITS_ROLE_NAV = setRoleNavigation;
+const ACTIVE_SIDES = ["family", "career", "communicate"];
+function resolvedActiveSide(me = window.CARESITS_ME || {}) {
+  if (ACTIVE_SIDES.includes(me.activeSide)) return me.activeSide;
+  if (ACTIVE_SIDES.includes(me.entryRole)) return me.entryRole;
+  return me.side === "carer" ? "career" : me.side === "communicate" ? "communicate" : "family";
+}
+function refreshSideSwitch(side = resolvedActiveSide()) {
+  const box = document.getElementById("sideSwitch");
+  if (!box) return;
+  const me = window.CARESITS_ME || {};
+  box.hidden = !me.uid;
+  const buttons = [...document.querySelectorAll("[data-side-choice]")];
+  for (const button of buttons) {
+    const selected = button.dataset.sideChoice === side;
+    button.classList.toggle("on", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+  }
+  const selectedButton = [...box.querySelectorAll("[data-side-choice]")].find((button) => button.dataset.sideChoice === side);
+  const name = document.getElementById("activeSideName");
+  if (name) name.textContent = selectedButton?.textContent || "";
+  refreshHomeSwitch();
+}
+async function setActiveSide(side) {
+  if (!ACTIVE_SIDES.includes(side)) return false;
+  const previous = resolvedActiveSide();
+  const me = window.CARESITS_ME || {};
+  if (!me.uid) return false;
+  for (const button of document.querySelectorAll("[data-side-choice]")) button.disabled = true;
+  window.CARESITS_ME = { ...me, activeSide: side };
+  document.documentElement.dataset.entryRole = side;
+  setRoleNavigation(side);
+  refreshSideSwitch(side);
+  let result = null;
+  try {
+    if (typeof window.CARESITS_WRITE === "function") result = await window.CARESITS_WRITE("active-side", { side });
+  } catch { result = null; }
+  for (const button of document.querySelectorAll("[data-side-choice]")) button.disabled = false;
+  const status = document.getElementById("sideSwitchStatus");
+  if (!result?.ok) {
+    window.CARESITS_ME = { ...window.CARESITS_ME, activeSide: previous };
+    document.documentElement.dataset.entryRole = previous;
+    setRoleNavigation(previous);
+    refreshSideSwitch(previous);
+    if (status) status.textContent = tr("shell.sideSaveFailed");
+    return false;
+  }
+  if (status) status.textContent = "";
+  document.getElementById("homeSideSwitchDialog").hidden = true;
+  show("home");
+  window.CARESITS_RENDER_HOME?.();
+  if (typeof window.CARESITS_TOUR_START_SIDE === "function") window.CARESITS_TOUR_START_SIDE(side);
+  return true;
+}
+window.CARESITS_SET_ACTIVE_SIDE = setActiveSide;
+document.querySelectorAll("[data-side-choice]").forEach((button) => button.addEventListener("click", () => setActiveSide(button.dataset.sideChoice)));
+document.addEventListener("caresits-account-ready", () => {
+  const side = resolvedActiveSide();
+  document.documentElement.dataset.entryRole = side;
+  setRoleNavigation(side);
+  refreshSideSwitch(side);
+});
+setRoleNavigation(resolvedActiveSide());
+refreshSideSwitch();
 
 // The Family Plus gate (payments chapter §2 + FEATURE-SPLIT): the
 // Day Story, the roster and the timesheet are Family Plus features
@@ -31,35 +128,105 @@ function plusLocked(nav) {
   return me.plusExtras !== true;
 }
 
+// The whole view mode (Ilse's ruling, 28 Oct 2026): Finding
+// or Connected, switched from the side bar menu or Settings,
+// never from a home page. The choice is saved on the account
+// (the meta/app doc, through the live write route) and read
+// back at boot; a device copy rides beside it, keyed to the
+// account. Pressing Connected changes the WHOLE app: the
+// Finding group leaves the menu, the Finding bottom tabs
+// leave the bar, the top button becomes Today, and Home
+// renders the Connected daily home.
+// The surfaces only the Finding world holds:
+const FINDING_ONLY = new Set(["find", "matches", "board", "questionnaire"]);
+let chosenMode = null;
+try { const k = modeKey(); if (k) chosenMode = cleanMode(localStorage.getItem(k)); } catch { /* storage off */ }
+let bootInfo = null;
+function currentMode() {
+  if (bootInfo) return bootInfo.mode;
+  return chosenMode || MODE_FINDING;
+}
+function applyMode() {
+  const mode = currentMode();
+  if (layout) layout.dataset.mode = mode;
+  const homeBtn = document.querySelector('.navBtn[data-nav="home"]');
+  if (homeBtn) homeBtn.textContent = mode === MODE_CONNECTED ? tr("shell.today") : tr("shell.home");
+  document.querySelectorAll("[data-mode-pick]").forEach((b) => b.classList.toggle("on", b.dataset.modePick === mode));
+  window.CARESITS_MODE_STATE = { mode, chosen: Boolean(chosenMode), booted: Boolean(bootInfo) };
+}
+// The switch itself: the pick is kept on this device (under
+// this account's own key), written to the account, and
+// applied to the whole app at once. A member standing on a
+// Finding only surface lands Home.
+window.CARESITS_SET_MODE = (mode) => {
+  const m = cleanMode(mode);
+  if (!m) return;
+  chosenMode = m;
+  if (bootInfo) bootInfo = { mode: m, chosen: m };
+  try { const k = modeKey(); if (k) localStorage.setItem(k, m); } catch { /* storage off */ }
+  if (typeof window.CARESITS_WRITE === "function") { try { window.CARESITS_WRITE("mode", { mode: m }); } catch { /* the device copy stands */ } }
+  applyMode();
+  if (m === MODE_CONNECTED && FINDING_ONLY.has(activeNav)) show("home");
+  if (typeof window.CARESITS_RENDER_HOME === "function") window.CARESITS_RENDER_HOME();
+};
+// The boot's decision (live.js, once it knows the account's
+// saved pick and whether a live pair stands): the account
+// choice wins, then a past pick on this device, then the
+// standing default.
+window.CARESITS_MODE_BOOT = ({ accountMode = null, hasLivePair = false } = {}) => {
+  let deviceMode = null;
+  try { const k = modeKey(); if (k) deviceMode = cleanMode(localStorage.getItem(k)); } catch { /* storage off */ }
+  const r = resolveBootMode({ accountMode, deviceMode: deviceMode || chosenMode, hasLivePair });
+  bootInfo = r;
+  if (r.chosen) chosenMode = r.chosen;
+  applyMode();
+  if (typeof window.CARESITS_RENDER_HOME === "function") window.CARESITS_RENDER_HOME();
+};
+
 function show(nav) {
+  if (currentMode() === MODE_CONNECTED && FINDING_ONLY.has(nav)) nav = "home";
+  if (nav === "home" && currentMode() !== MODE_CONNECTED && resolvedActiveSide() !== "communicate") nav = "find";
   if (plusLocked(nav)) {
     if (typeof window.CARESITS_OPEN_PLANS === "function") window.CARESITS_OPEN_PLANS("plus");
     closeMenu();
     return;
   }
+  activeNav = nav;
   document.querySelectorAll(".surface").forEach((s) => (s.hidden = true));
   document.querySelectorAll(".navBtn").forEach((b) => b.classList.toggle("on", b.dataset.nav === nav));
-  if (nav === "home") $("#surface-home").hidden = false;
+  const surfaceNav = nav === "ideas" ? "home" : nav;
+  if (surfaceNav === "home") $("#surface-home").hidden = false;
   else if (nav === "find") $("#surface-find").hidden = false;
   else if (nav === "matches") $("#surface-matches").hidden = false;
   else if (nav === "board") $("#surface-board").hidden = false;
-  else if (nav === "calendar") $("#surface-calendar").hidden = false;
+  else if (["calendar", "roster", "timesheet", "reminders"].includes(nav)) {
+    $("#surface-calendar").hidden = false;
+    window.CARESITS_WEEK_SELECT?.(nav);
+    window.CARESITS_V2?.renderMyDays();
+  }
   else if (nav === "children") $("#surface-children").hidden = false;
   else if (nav === "daystory") $("#surface-daystory").hidden = false;
   else if (nav === "bin") { $("#surface-bin").hidden = false; if (typeof window.CARESITS_BIN_OPEN === "function") window.CARESITS_BIN_OPEN(); }
-  else if (nav === "roster") $("#surface-roster").hidden = false;
-  else if (nav === "timesheet") $("#surface-timesheet").hidden = false;
-  else if (nav === "reminders") $("#surface-reminders").hidden = false;
   else if (nav === "checks") $("#surface-checks").hidden = false;
   else if (nav === "reviews") $("#surface-reviews").hidden = false;
   else if (nav === "profile") $("#surface-profile").hidden = false;
   else if (nav === "privacy") $("#surface-privacy").hidden = false;
+  else if (nav === "photos") { $("#surface-photos").hidden = false; window.CARESITS_PHOTOS_OPEN?.(); }
+  else if (nav === "me") { $("#surface-me").hidden = false; window.CARESITS_ME_OPEN?.(); }
   else if (nav === "settings") $("#surface-settings").hidden = false;
+  else if (nav === "help") $("#surface-help").hidden = false;
   else if (nav === "thread") { $("#surface-thread").hidden = false; if (typeof window.CARESITS_THREAD_OPEN === "function") window.CARESITS_THREAD_OPEN(); }
   else if (nav === "emergency") $("#surface-emergency").hidden = false;
   else if (nav === "questionnaire") $("#surface-questionnaire").hidden = false;
   else if (SOON.has(nav)) { $("#soonTitle").textContent = TITLES[nav] + " · coming with the build"; $("#surface-soon").hidden = false; }
   closeMenu();
+  setBottomActive(nav);
+  refreshHomeSwitch();
+  if (nav === "home") window.CARESITS_RENDER_HOME?.();
+  if (nav === "ideas") {
+    window.CARESITS_RENDER_HOME?.();
+    requestAnimationFrame(() => (document.getElementById("learningIdeasCard") || document.getElementById("learningSetupCard"))?.scrollIntoView({ block: "start", behavior: "smooth" }));
+  }
 }
 
 // The shell's show mechanism, published as a seam: surfaces
@@ -67,16 +234,29 @@ function show(nav) {
 // (HQ ruling on Leg 14). Homes' thread jump rides it.
 window.CARESITS_NAV = show;
 
-$("#menuBtn").addEventListener("click", openMenu);
 $("#closeBtn").addEventListener("click", closeMenu);
+for (const button of document.querySelectorAll("[data-open-more]")) button.addEventListener("click", openMenu);
+const sidePicker = document.getElementById("homeSideSwitchDialog");
+$("#homeSideSwitchBtn").addEventListener("click", () => { sidePicker.hidden = false; document.querySelector("#homeSideSwitchClose")?.focus(); });
+$("#homeSideSwitchClose").addEventListener("click", () => { sidePicker.hidden = true; $("#homeSideSwitchBtn").focus(); });
+sidePicker.addEventListener("click", (event) => { if (event.target === sidePicker) sidePicker.hidden = true; });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") { sidePicker.hidden = true; closeMenu(); } });
 $("#sliver").addEventListener("click", closeMenu);
 document.querySelectorAll(".navGroupHead").forEach((h) =>
   h.addEventListener("click", () => {
-    const g = h.parentElement;
-    const was = g.classList.contains("open");
-    document.querySelectorAll(".navGroup").forEach((x) => x.classList.remove("open"));
-    if (!was) g.classList.add("open");
+    const group = h.parentElement;
+    const open = !group.classList.contains("open");
+    for (const item of document.querySelectorAll(".navGroup")) {
+      const selected = item === group && open;
+      item.classList.toggle("open", selected);
+      item.querySelector(".navGroupHead")?.setAttribute("aria-expanded", String(selected));
+    }
   })
 );
 document.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => show(b.dataset.nav)));
 document.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => show(b.dataset.goto)));
+document.querySelectorAll("[data-mode-pick]").forEach((b) => b.addEventListener("click", () => window.CARESITS_SET_MODE(b.dataset.modePick)));
+applyMode();
+
+setBottomActive("home");
+refreshHomeSwitch();
